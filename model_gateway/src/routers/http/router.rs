@@ -845,7 +845,8 @@ impl Router {
             // JSON body (success or 4xx error). Don't relabel non-SSE
             // responses as SSE; leave that judgment to whatever the worker
             // set.
-            let response_headers = header_utils::preserve_response_headers(res.headers());
+            let mut response_headers = header_utils::preserve_response_headers(res.headers());
+            header_utils::insert_routed_worker_id(&mut response_headers, worker.url());
             let stream = res.bytes_stream();
             // Bounded channel applies backpressure: if the downstream client
             // is slow, the upstream relay awaits on `send` rather than piling
@@ -948,7 +949,8 @@ impl Router {
             response = AttachedBody::wrap_response(response, load_guard);
             response
         } else {
-            let response_headers = header_utils::preserve_response_headers(res.headers());
+            let mut response_headers = header_utils::preserve_response_headers(res.headers());
+            header_utils::insert_routed_worker_id(&mut response_headers, worker.url());
             match res.bytes().await {
                 Ok(body) => {
                     let mut response = Response::new(Body::from(body));
@@ -1101,6 +1103,7 @@ impl Router {
         if is_stream {
             // Preserve headers for streaming response
             let mut response_headers = header_utils::preserve_response_headers(res.headers());
+            header_utils::insert_routed_worker_id(&mut response_headers, worker.url());
             // Ensure we set the correct content-type for SSE
             response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
 
@@ -1156,7 +1159,7 @@ impl Router {
 
             // Cap the buffered read at the ingress payload limit; this is the
             // point where an upstream body is first pulled into memory.
-            let response = match Self::read_worker_body_capped(
+            let mut response = match Self::read_worker_body_capped(
                 res.bytes_stream(),
                 self.max_payload_size,
             )
@@ -1170,6 +1173,7 @@ impl Router {
                 }
                 Err(error_response) => error_response,
             };
+            header_utils::insert_routed_worker_id(response.headers_mut(), worker.url());
 
             // load_guard dropped here automatically after response body is read
             response
