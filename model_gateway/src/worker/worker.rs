@@ -453,18 +453,28 @@ pub trait Worker: Send + Sync + fmt::Debug + 'static {
 
     /// Record the outcome of a request based on the HTTP status code.
     ///
-    /// The worker decides whether the status is a CB failure using its
-    /// per-worker `retryable_status_codes` set (default: 408, 429, 5xx).
+    /// Statuses in the per-worker `capacity_status_codes` set (default: 429)
+    /// record nothing at all — neither failure nor success. Any other status
+    /// is a circuit-breaker failure when it appears in `retryable_status_codes`,
+    /// which by default leaves 408, 500, 502, 503 and 504 tripping the breaker.
+    /// 429 is in that set too, but the capacity check returns before it is read.
     /// Callers just pass the status — no need to interpret it.
     ///
     /// For transport/connection errors where no HTTP response is received,
     /// pass the status code returned to the client (e.g., 502 for a send
     /// error, 504 for a timeout).
     fn record_outcome(&self, status_code: u16) {
-        let is_failure = self
-            .resilience()
-            .retryable_status_codes
-            .contains(&status_code);
+        let resilience = self.resilience();
+        // Capacity pushback (429 by default) is a routing signal, not a
+        // worker fault: the request is retried elsewhere, but no
+        // circuit-breaker sample is recorded in either direction — opening
+        // the breaker on backpressure would amplify a load spike into
+        // unavailability, and crediting a success would close a half-open
+        // breaker on a request the worker refused.
+        if resilience.capacity_status_codes.contains(&status_code) {
+            return;
+        }
+        let is_failure = resilience.retryable_status_codes.contains(&status_code);
         self.record_circuit_breaker_outcome(!is_failure);
     }
 
@@ -2318,6 +2328,56 @@ mod tests {
         assert!(!worker.is_available());
         assert!(worker.is_healthy());
         assert!(!worker.circuit_breaker_can_execute());
+    }
+
+    #[test]
+    fn test_capacity_pushback_never_trips_circuit_breaker() {
+        let worker = BasicWorkerBuilder::new("http://test:8080")
+            .worker_type(WorkerType::Regular)
+            .health_config(no_health_check())
+            .build();
+
+        // A storm of 429 capacity pushback must not open the breaker...
+        for _ in 0..20 {
+            worker.record_outcome(429);
+        }
+        assert!(worker.is_available());
+        assert_eq!(worker.circuit_breaker_state(), CircuitState::Closed);
+
+        // ...while genuine failures still do.
+        for _ in 0..5 {
+            worker.record_outcome(500);
+        }
+        assert!(!worker.is_available());
+    }
+
+    #[test]
+    fn test_capacity_pushback_does_not_close_half_open_breaker() {
+        let config = CircuitBreakerConfig {
+            failure_threshold: 2,
+            success_threshold: 1,
+            timeout_duration: Duration::from_millis(50),
+            window_duration: Duration::from_secs(60),
+        };
+        let worker = BasicWorkerBuilder::new("http://test:8080")
+            .worker_type(WorkerType::Regular)
+            .circuit_breaker_config(config)
+            .health_config(no_health_check())
+            .build();
+
+        worker.record_outcome(500);
+        worker.record_outcome(500);
+        assert!(!worker.is_available());
+        thread::sleep(Duration::from_millis(80));
+        assert!(worker.is_available());
+        assert_eq!(worker.circuit_breaker_state(), CircuitState::HalfOpen);
+
+        // 429 records no sample: the breaker must stay half-open, not close.
+        worker.record_outcome(429);
+        assert_eq!(worker.circuit_breaker_state(), CircuitState::HalfOpen);
+
+        worker.record_outcome(200);
+        assert_eq!(worker.circuit_breaker_state(), CircuitState::Closed);
     }
 
     #[test]
