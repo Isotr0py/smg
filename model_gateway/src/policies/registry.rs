@@ -1043,6 +1043,9 @@ mod tests {
             overload_token_usage_threshold: 1.0,
             overlap_decay: 0.0,
             selection_temperature: 0.0,
+            cache_index: Default::default(),
+            cache_ttl_secs: 180,
+            cache_boundaries: Vec::new(),
         }
     }
 
@@ -1373,6 +1376,9 @@ mod tests {
                 overload_token_usage_threshold: 1.0,
                 overlap_decay: 0.0,
                 selection_temperature: 0.0,
+                cache_index: Default::default(),
+                cache_ttl_secs: 180,
+                cache_boundaries: Vec::new(),
             },
             rid_override(ManualAssignmentMode::Delegate),
         );
@@ -1702,6 +1708,9 @@ mod tests {
                 overload_token_usage_threshold,
                 overlap_decay,
                 selection_temperature: 0.0,
+                cache_index: Default::default(),
+                cache_ttl_secs: 180,
+                cache_boundaries: Vec::new(),
             }
         }
 
@@ -1748,6 +1757,9 @@ mod tests {
             overload_token_usage_threshold: 0.8,
             overlap_decay: 0.0,
             selection_temperature: 0.0,
+            cache_index: Default::default(),
+            cache_ttl_secs: 180,
+            cache_boundaries: Vec::new(),
         });
 
         // Hinted policy is a fresh per-model instance, not the shared default.
@@ -1817,6 +1829,9 @@ mod tests {
             overload_token_usage_threshold: 1.0,
             overlap_decay: 0.0,
             selection_temperature: 0.0,
+            cache_index: Default::default(),
+            cache_ttl_secs: 180,
+            cache_boundaries: Vec::new(),
         }));
 
         for round in 0..64 {
