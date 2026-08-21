@@ -15,7 +15,9 @@ use openai_protocol::{
     common::{GenerationRequest, InputIds, StringOrArray},
     completion::CompletionRequest,
     generate::GenerateRequest,
+    messages::CreateMessageRequest,
     rerank::RerankRequest,
+    responses::ResponsesRequest,
 };
 use reqwest::Client;
 use serde::Serialize;
@@ -1624,6 +1626,78 @@ impl RouterTrait for PDRouter {
             .await
     }
 
+    async fn route_messages(
+        &self,
+        headers: Option<&HeaderMap>,
+        _tenant_meta: &TenantRequestMeta,
+        body: CreateMessageRequest,
+        model_id: &str,
+    ) -> Response {
+        let is_stream = body.stream.unwrap_or(false);
+
+        let request_text = if self.policies_need_request_text() {
+            Some(body.extract_text_for_routing())
+        } else {
+            None
+        };
+
+        let routing = RoutingDerivatives {
+            tokens: None,
+            text: request_text,
+            rid_key: self
+                .policy_registry
+                .derive_rid_key(body.rid())
+                .map(str::to_string),
+        };
+        let context = PDRequestContext {
+            route: "/v1/messages",
+            batch_size: None,
+            is_stream,
+            return_logprob: false,
+            model_id,
+            headers: headers.cloned(),
+        };
+
+        self.execute_dual_dispatch(headers, body, routing, context)
+            .await
+    }
+
+    async fn route_responses(
+        &self,
+        headers: Option<&HeaderMap>,
+        _tenant_meta: &TenantRequestMeta,
+        body: ResponsesRequest,
+        model_id: &str,
+    ) -> Response {
+        let is_stream = body.stream.unwrap_or(false);
+
+        let request_text = if self.policies_need_request_text() {
+            Some(body.extract_text_for_routing())
+        } else {
+            None
+        };
+
+        let routing = RoutingDerivatives {
+            tokens: None,
+            text: request_text,
+            rid_key: self
+                .policy_registry
+                .derive_rid_key(body.rid())
+                .map(str::to_string),
+        };
+        let context = PDRequestContext {
+            route: "/v1/responses",
+            batch_size: None,
+            is_stream,
+            return_logprob: false,
+            model_id,
+            headers: headers.cloned(),
+        };
+
+        self.execute_dual_dispatch(headers, body, routing, context)
+            .await
+    }
+
     async fn route_completion(
         &self,
         headers: Option<&HeaderMap>,
@@ -1714,6 +1788,7 @@ mod tests {
     use super::*;
     use crate::{
         config::PolicyConfig,
+        tenant::TenantKey,
         worker::{BasicWorkerBuilder, WorkerType},
     };
 
@@ -1916,6 +1991,129 @@ mod tests {
             }
             PdSelectionFailure::Shed(_) => panic!("an empty fleet is not an overload shed"),
         }
+    }
+
+    /// Loopback stub answering `{}` on any path, recording each request's
+    /// path and JSON body.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test stub server lives for the duration of the test process"
+    )]
+    async fn spawn_recording_stub() -> (String, Arc<std::sync::Mutex<Vec<(String, Value)>>>) {
+        let seen: Arc<std::sync::Mutex<Vec<(String, Value)>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = Arc::clone(&seen);
+        let app = axum::Router::new().fallback(axum::routing::any(move |req: Request| {
+            let log = Arc::clone(&log);
+            async move {
+                let path = req.uri().path().to_string();
+                let bytes = axum::body::to_bytes(req.into_body(), usize::MAX)
+                    .await
+                    .unwrap_or_default();
+                let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+                log.lock().unwrap().push((path, json));
+                ([(CONTENT_TYPE, "application/json")], "{}")
+            }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        (format!("http://{addr}"), seen)
+    }
+
+    #[tokio::test]
+    async fn messages_and_responses_dispatch_to_their_worker_routes() {
+        let (prefill_url, prefill_seen) = spawn_recording_stub().await;
+        let (decode_url, decode_seen) = spawn_recording_stub().await;
+
+        let router = create_test_pd_router();
+        router
+            .worker_registry
+            .register_or_replace(Arc::from(create_test_worker(
+                prefill_url,
+                WorkerType::Prefill,
+                true,
+            )));
+        router
+            .worker_registry
+            .register_or_replace(Arc::from(create_test_worker(
+                decode_url,
+                WorkerType::Decode,
+                true,
+            )));
+        let tenant = TenantRequestMeta::new(TenantKey::new("test-tenant"));
+
+        let messages: CreateMessageRequest = serde_json::from_value(json!({
+            "model": "m",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+        }))
+        .expect("valid messages request");
+        let response = router
+            .route_messages(None, &tenant, messages, UNKNOWN_MODEL_ID)
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let responses: ResponsesRequest = serde_json::from_value(json!({
+            "model": "m",
+            "input": "hi",
+        }))
+        .expect("valid responses request");
+        let response = router
+            .route_responses(None, &tenant, responses, UNKNOWN_MODEL_ID)
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        // Both legs of each dispatch hit the endpoint's exact worker route
+        // with bootstrap fields injected into the forwarded JSON.
+        for seen in [&prefill_seen, &decode_seen] {
+            let seen = seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let paths: Vec<&str> = seen.iter().map(|(path, _)| path.as_str()).collect();
+            assert_eq!(paths, ["/v1/messages", "/v1/responses"]);
+            for (path, body) in seen.iter() {
+                for key in ["bootstrap_host", "bootstrap_port", "bootstrap_room"] {
+                    assert!(
+                        body.get(key).is_some(),
+                        "{path} leg body is missing injected {key}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn messages_and_responses_endpoints_dispatch_through_pd() {
+        let router = create_test_pd_router();
+        let tenant = TenantRequestMeta::new(TenantKey::new("test-tenant"));
+
+        let messages: CreateMessageRequest = serde_json::from_value(json!({
+            "model": "m",
+            "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+        }))
+        .expect("valid messages request");
+        let response = router
+            .route_messages(None, &tenant, messages, UNKNOWN_MODEL_ID)
+            .await;
+        // The endpoint reaches PD selection (and fails on the empty fleet)
+        // instead of falling through to the trait's 501 default.
+        assert_ne!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+        let responses: ResponsesRequest = serde_json::from_value(json!({
+            "model": "m",
+            "input": "hi",
+        }))
+        .expect("valid responses request");
+        let response = router
+            .route_responses(None, &tenant, responses, UNKNOWN_MODEL_ID)
+            .await;
+        assert_ne!(response.status(), StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 
     #[test]
