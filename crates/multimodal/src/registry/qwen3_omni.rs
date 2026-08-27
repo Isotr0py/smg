@@ -2,9 +2,11 @@ use std::collections::HashMap;
 
 use serde_json::{json, Value};
 
+use super::qwen3_vl::qwen3_video_fetch_config;
 use crate::{
     audio::{AudioPreProcessor, Qwen3AudioProcessor},
     encoder_inputs::PreprocessedEncoderInputs,
+    media::VideoFetchConfig,
     registry::{ModelMetadata, ModelProcessorSpec, ModelRegistryError, RegistryResult},
     types::{EncoderFieldLayouts, FieldLayout, Modality, PromptReplacement, TokenId},
     vision::PreProcessorConfig,
@@ -120,6 +122,13 @@ impl ModelProcessorSpec for Qwen3OmniSpec {
 
     fn processor_kwargs(&self, _metadata: &ModelMetadata) -> RegistryResult<Value> {
         Ok(json!({"use_audio_in_video": false}))
+    }
+
+    fn video_fetch_config(
+        &self,
+        video_preprocessor_config: Option<&PreProcessorConfig>,
+    ) -> VideoFetchConfig {
+        qwen3_video_fetch_config(video_preprocessor_config)
     }
 
     fn audio_processor(
@@ -318,6 +327,34 @@ mod tests {
         assert!(Qwen3OmniSpec
             .keep_on_cpu_keys_for(Modality::Audio)
             .is_empty());
+    }
+
+    #[test]
+    fn omni_video_fetch_config_uses_qwen3_vl_sampling() {
+        use crate::video_sampling::VideoSamplingStrategy;
+
+        let tokenizer = omni_tokenizer();
+        let config = json!({"model_type": "qwen3_omni_moe"});
+        let metadata = ModelMetadata {
+            model_id: "Qwen/Qwen3-Omni-30B-A3B-Thinking",
+            tokenizer: &tokenizer,
+            config: &config,
+        };
+        let registry = ModelRegistry::new();
+        let spec = registry.lookup(&metadata).unwrap();
+
+        let cfg = spec.video_fetch_config(None);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Qwen3Vl);
+        assert_eq!(cfg.sample_fps, 2.0);
+        assert_eq!(cfg.min_frames, 4);
+        assert_eq!(cfg.max_frames, 768);
+
+        let pp_config = PreProcessorConfig::from_json(r#"{"fps": 1.0, "max_frames": 64}"#)
+            .expect("video preprocessor config");
+        let cfg = spec.video_fetch_config(Some(&pp_config));
+        assert_eq!(cfg.sample_fps, 1.0);
+        assert_eq!(cfg.max_frames, 64);
+        assert_eq!(cfg.min_frames, 4);
     }
 
     #[test]

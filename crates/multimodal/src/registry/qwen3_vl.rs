@@ -4,11 +4,36 @@ use serde_json::{json, Value};
 
 use crate::{
     encoder_inputs::{ModelSpecificValue, PreprocessedEncoderInputs},
+    media::VideoFetchConfig,
     registry::{ModelMetadata, ModelProcessorSpec, ModelRegistryError, RegistryResult},
     types::{FieldLayout, Modality, PromptReplacement, TokenId},
+    video_sampling::VideoSamplingStrategy,
+    vision::PreProcessorConfig,
 };
 
 pub(super) struct Qwen3VLVisionSpec;
+
+/// Shared `video_fetch_config` implementation for the video-capable Qwen3
+/// specs (Qwen3-VL, Qwen3-Omni): HF `Qwen3VLVideoProcessor` sampling
+/// semantics with parameters from `video_preprocessor_config.json` (`extra`)
+/// when the checkpoint provides them, HF defaults otherwise.
+pub(super) fn qwen3_video_fetch_config(
+    video_preprocessor_config: Option<&PreProcessorConfig>,
+) -> VideoFetchConfig {
+    let defaults = VideoFetchConfig::default();
+    VideoFetchConfig {
+        min_frames: video_preprocessor_config
+            .and_then(|config| config.get_extra::<usize>("min_frames"))
+            .unwrap_or(defaults.min_frames),
+        max_frames: video_preprocessor_config
+            .and_then(|config| config.get_extra::<usize>("max_frames"))
+            .unwrap_or(defaults.max_frames),
+        sample_fps: video_preprocessor_config
+            .and_then(|config| config.get_extra::<f32>("fps"))
+            .unwrap_or(defaults.sample_fps),
+        strategy: VideoSamplingStrategy::Qwen3Vl,
+    }
+}
 
 impl Qwen3VLVisionSpec {
     fn image_pad_token_id(metadata: &ModelMetadata) -> RegistryResult<TokenId> {
@@ -87,6 +112,7 @@ impl Qwen3VLVisionSpec {
         pad_token_id: TokenId,
         num_tokens: usize,
         grid_t: usize,
+        sample_fps: f64,
     ) -> Option<Vec<TokenId>> {
         if grid_t <= 1 || num_tokens == 0 || !num_tokens.is_multiple_of(grid_t) {
             return None;
@@ -98,10 +124,10 @@ impl Qwen3VLVisionSpec {
         let temporal_patch_size = metadata
             .config_u32(&["vision_config", "temporal_patch_size"])
             .unwrap_or(2) as f64;
-        // SMG currently samples Qwen videos at the HF default 2 fps. Match HF's
-        // prompt timestamp convention: timestamp each temporal patch by the
-        // average frame time and format it with one decimal place.
-        let sample_fps = 2.0_f64;
+        // HF timestamp convention: each temporal patch is timestamped by the
+        // average frame time, formatted with one decimal place. `sample_fps`
+        // comes from the preprocessor's `video_second_per_grid` (see
+        // `video_sample_fps`) so decode fps, processor, and timestamps agree.
 
         for grid_idx in 0..grid_t {
             let seconds = (grid_idx as f64 * temporal_patch_size
@@ -121,6 +147,34 @@ impl Qwen3VLVisionSpec {
         }
 
         Some(tokens)
+    }
+
+    /// Effective video sampling fps for prompt timestamps, derived from the
+    /// preprocessor's `video_second_per_grid` (`fps = temporal_patch_size /
+    /// second_per_grid`, the inverse of how `qwen_vl_base` writes it) so the
+    /// decode-time effective fps, the processor, and the prompt timestamps
+    /// stay consistent. Falls back to the HF default 2.0 when the value is
+    /// missing or degenerate.
+    fn video_sample_fps(metadata: &ModelMetadata, preprocessed: &PreprocessedEncoderInputs) -> f64 {
+        const DEFAULT_SAMPLE_FPS: f64 = 2.0;
+        let second_per_grid = match preprocessed.model_specific.get("video_second_per_grid") {
+            Some(ModelSpecificValue::Tensor { data, .. }) if !data.is_empty() => f64::from(data[0]),
+            _ => return DEFAULT_SAMPLE_FPS,
+        };
+        if !second_per_grid.is_finite() || second_per_grid <= 0.0 {
+            return DEFAULT_SAMPLE_FPS;
+        }
+        let temporal_patch_size = f64::from(
+            metadata
+                .config_u32(&["vision_config", "temporal_patch_size"])
+                .unwrap_or(2),
+        );
+        let fps = temporal_patch_size / second_per_grid;
+        if fps.is_finite() && fps > 0.0 {
+            fps
+        } else {
+            DEFAULT_SAMPLE_FPS
+        }
     }
 }
 
@@ -202,6 +256,13 @@ impl ModelProcessorSpec for Qwen3VLVisionSpec {
         Ok(json!({}))
     }
 
+    fn video_fetch_config(
+        &self,
+        video_preprocessor_config: Option<&PreProcessorConfig>,
+    ) -> VideoFetchConfig {
+        qwen3_video_fetch_config(video_preprocessor_config)
+    }
+
     fn prompt_replacements(
         &self,
         metadata: &ModelMetadata,
@@ -233,6 +294,7 @@ impl ModelProcessorSpec for Qwen3VLVisionSpec {
                 let pad_token_id = Self::video_pad_token_id(metadata)?;
                 let placeholder_token = self.placeholder_token_for(metadata, Modality::Video)?;
                 let video_grid_t = Self::video_grid_t(preprocessed);
+                let video_sample_fps = Self::video_sample_fps(metadata, preprocessed);
                 Ok(preprocessed
                     .feature_token_counts
                     .iter()
@@ -250,6 +312,7 @@ impl ModelProcessorSpec for Qwen3VLVisionSpec {
                                     pad_token_id,
                                     num_tokens,
                                     grid_t,
+                                    video_sample_fps,
                                 )
                             })
                             .unwrap_or_else(|| vec![pad_token_id; num_tokens]);
@@ -296,10 +359,13 @@ impl ModelProcessorSpec for Qwen3VLVisionSpec {
 mod tests {
     use serde_json::json;
 
+    use super::qwen3_video_fetch_config;
     use crate::{
         encoder_inputs::ModelSpecificValue,
         registry::{test_helpers::*, ModelMetadata, ModelRegistry},
         types::ImageSize,
+        video_sampling::VideoSamplingStrategy,
+        vision::PreProcessorConfig,
     };
 
     #[test]
@@ -522,5 +588,152 @@ mod tests {
             .lookup(&metadata)
             .expect("should match qwen4_exp alias");
         assert_eq!(spec.name(), "qwen3_vl");
+    }
+
+    /// Extract the plain-text fragments a replacement spliced in (timestamps),
+    /// given a tokenizer byte-encoded at `base`.
+    fn replacement_text(tokens: &[crate::types::TokenId], base: u32) -> String {
+        tokens
+            .iter()
+            .filter(|&&token| (base..base + 256).contains(&(token as u32)))
+            .map(|&token| char::from((token as u32 - base) as u8))
+            .collect()
+    }
+
+    fn video_timestamp_setup() -> (TestTokenizer, serde_json::Value) {
+        let tokenizer = TestTokenizer::new(&[
+            ("<|video_pad|>", 151656),
+            ("<|vision_start|>", 151652),
+            ("<|vision_end|>", 151653),
+        ])
+        .with_byte_encoder(1000);
+        let config = json!({
+            "model_type": "qwen3_vl",
+            "image_token_id": 151655,
+            "video_token_id": 151656,
+            "vision_start_token_id": 151652,
+            "vision_end_token_id": 151653,
+            "vision_config": {"temporal_patch_size": 2}
+        });
+        (tokenizer, config)
+    }
+
+    #[test]
+    fn qwen3_vl_video_timestamps_follow_preprocessed_fps() {
+        let (tokenizer, config) = video_timestamp_setup();
+        let metadata = ModelMetadata {
+            model_id: "Qwen/Qwen3-VL-8B-Instruct",
+            tokenizer: &tokenizer,
+            config: &config,
+        };
+        let registry = ModelRegistry::new();
+        let spec = registry.lookup(&metadata).expect("qwen3_vl spec");
+        // second_per_grid = 0.5 with temporal_patch_size = 2 -> effective fps =
+        // 4, so frame 1 is timestamped (2 + 0.5) / 4 = 0.625 -> "<0.6 seconds>"
+        // instead of the 2 fps default's "<1.2 seconds>".
+        let preprocessed = test_preprocessed_with_tokens(&[ImageSize::new(320, 256)], &[160])
+            .with_extra(
+                "video_grid_thw",
+                ModelSpecificValue::int_2d(vec![2, 16, 20], 1, 3),
+            )
+            .with_extra(
+                "video_second_per_grid",
+                ModelSpecificValue::Tensor {
+                    data: vec![0.5],
+                    shape: vec![1],
+                },
+            );
+        let replacements = spec
+            .prompt_replacements_for(&metadata, &preprocessed, crate::types::Modality::Video)
+            .unwrap();
+
+        let text = replacement_text(&replacements[0].tokens, 1000);
+        assert!(text.contains("<0.1 seconds>"), "timestamps: {text}");
+        assert!(text.contains("<0.6 seconds>"), "timestamps: {text}");
+        assert!(!text.contains("<1.2 seconds>"), "timestamps: {text}");
+    }
+
+    #[test]
+    fn qwen3_vl_video_timestamps_fall_back_to_default_fps() {
+        let (tokenizer, config) = video_timestamp_setup();
+        let metadata = ModelMetadata {
+            model_id: "Qwen/Qwen3-VL-8B-Instruct",
+            tokenizer: &tokenizer,
+            config: &config,
+        };
+        let registry = ModelRegistry::new();
+        let spec = registry.lookup(&metadata).expect("qwen3_vl spec");
+        // No video_second_per_grid -> HF default 2 fps: frame 1 is
+        // (2 + 0.5) / 2 = 1.25 -> "<1.2 seconds>".
+        let preprocessed = test_preprocessed_with_tokens(&[ImageSize::new(320, 256)], &[160])
+            .with_extra(
+                "video_grid_thw",
+                ModelSpecificValue::int_2d(vec![2, 16, 20], 1, 3),
+            );
+        let replacements = spec
+            .prompt_replacements_for(&metadata, &preprocessed, crate::types::Modality::Video)
+            .unwrap();
+
+        let text = replacement_text(&replacements[0].tokens, 1000);
+        assert!(text.contains("<0.2 seconds>"), "timestamps: {text}");
+        assert!(text.contains("<1.2 seconds>"), "timestamps: {text}");
+    }
+
+    #[test]
+    fn qwen3_vl_video_fetch_config_reads_video_preprocessor_json() {
+        let tokenizer = TestTokenizer::new(&[]);
+        let config = json!({"model_type": "qwen3_vl"});
+        let metadata = ModelMetadata {
+            model_id: "Qwen/Qwen3-VL-8B-Instruct",
+            tokenizer: &tokenizer,
+            config: &config,
+        };
+        let registry = ModelRegistry::new();
+        let spec = registry.lookup(&metadata).expect("qwen3_vl spec");
+
+        let cfg = spec.video_fetch_config(None);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Qwen3Vl);
+        assert_eq!(cfg.sample_fps, 2.0);
+        assert_eq!(cfg.min_frames, 4);
+        assert_eq!(cfg.max_frames, 768);
+
+        let pp_config =
+            PreProcessorConfig::from_json(r#"{"fps": 1.0, "min_frames": 8, "max_frames": 64}"#)
+                .expect("video preprocessor config");
+        let cfg = spec.video_fetch_config(Some(&pp_config));
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Qwen3Vl);
+        assert_eq!(cfg.sample_fps, 1.0);
+        assert_eq!(cfg.min_frames, 8);
+        assert_eq!(cfg.max_frames, 64);
+    }
+
+    #[test]
+    fn qwen3_video_fetch_config_uses_hf_defaults_without_json() {
+        let cfg = qwen3_video_fetch_config(None);
+        assert_eq!(cfg.min_frames, 4);
+        assert_eq!(cfg.max_frames, 768);
+        assert_eq!(cfg.sample_fps, 2.0);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Qwen3Vl);
+    }
+
+    #[test]
+    fn qwen3_video_fetch_config_prefers_json_extra_fields() {
+        let pp_config = PreProcessorConfig::from_json(
+            r#"{"video_processor_type": "Qwen3VLVideoProcessor", "fps": 1.0, "min_frames": 8, "max_frames": 64}"#,
+        )
+        .expect("video preprocessor config");
+        let cfg = qwen3_video_fetch_config(Some(&pp_config));
+        assert_eq!(cfg.min_frames, 8);
+        assert_eq!(cfg.max_frames, 64);
+        assert_eq!(cfg.sample_fps, 1.0);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Qwen3Vl);
+
+        // Partial JSON: only the given keys override, the rest keep defaults.
+        let pp_config =
+            PreProcessorConfig::from_json(r#"{"fps": 0.5}"#).expect("video preprocessor config");
+        let cfg = qwen3_video_fetch_config(Some(&pp_config));
+        assert_eq!(cfg.min_frames, 4);
+        assert_eq!(cfg.max_frames, 768);
+        assert_eq!(cfg.sample_fps, 0.5);
     }
 }

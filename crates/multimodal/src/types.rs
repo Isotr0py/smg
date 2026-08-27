@@ -142,13 +142,41 @@ pub struct AudioClip {
     pub hash: String,
 }
 
+/// Sampling provenance for a decoded video clip: everything the prompt side
+/// needs to reason about frame timing without re-deriving indices.
+#[derive(Debug, Clone, Default)]
+pub struct VideoSampleInfo {
+    /// Actual frame rate after sampling and frame-count clamps
+    /// (sampled frames / duration). This is what processors and prompt
+    /// timestamps must use.
+    pub sample_fps: f32,
+    /// Frame rate reported by the container, when known.
+    pub source_fps: Option<f32>,
+    /// Total frames in the source video, when known.
+    pub total_source_frames: Option<u32>,
+    /// Container/stream duration in seconds, when known.
+    pub duration_seconds: Option<f64>,
+    /// Exact sampled source-frame indices. Only the OpenCV decode path knows
+    /// them; the ffmpeg fps-filter path records `None` (frame count is exact,
+    /// indices are approximate).
+    pub frame_indices: Option<Vec<u32>>,
+}
+
+impl VideoSampleInfo {
+    pub fn from_sample_fps(sample_fps: f32) -> Self {
+        Self {
+            sample_fps,
+            ..Self::default()
+        }
+    }
+}
+
 /// Decoded video payload captured by the media connector.
 #[derive(Debug, Clone)]
 pub struct VideoClip {
     pub frames: Vec<DynamicImage>,
     pub rgb_video: Option<DecodedRgbVideo>,
-    /// Effective frame rate after connector-side sampling and frame-count clamps.
-    pub sample_fps: f32,
+    pub sample_info: VideoSampleInfo,
     pub raw_bytes: bytes::Bytes,
     pub source: VideoSource,
     /// Blake3 hex-digest of raw_bytes, computed at decode time.
@@ -236,20 +264,26 @@ impl VideoClip {
         source: VideoSource,
         hash: String,
     ) -> Self {
-        Self::new_with_sample_fps(frames, raw_bytes, source, hash, 2.0)
+        Self::new_with_sample_info(
+            frames,
+            raw_bytes,
+            source,
+            hash,
+            VideoSampleInfo::from_sample_fps(2.0),
+        )
     }
 
-    pub fn new_with_sample_fps(
+    pub fn new_with_sample_info(
         frames: Vec<DynamicImage>,
         raw_bytes: bytes::Bytes,
         source: VideoSource,
         hash: String,
-        sample_fps: f32,
+        sample_info: VideoSampleInfo,
     ) -> Self {
         Self {
             frames,
             rgb_video: None,
-            sample_fps,
+            sample_info,
             raw_bytes,
             source,
             hash,
@@ -262,20 +296,26 @@ impl VideoClip {
         source: VideoSource,
         hash: String,
     ) -> Self {
-        Self::new_rgb_with_sample_fps(rgb_video, raw_bytes, source, hash, 2.0)
+        Self::new_rgb_with_sample_info(
+            rgb_video,
+            raw_bytes,
+            source,
+            hash,
+            VideoSampleInfo::from_sample_fps(2.0),
+        )
     }
 
-    pub fn new_rgb_with_sample_fps(
+    pub fn new_rgb_with_sample_info(
         rgb_video: DecodedRgbVideo,
         raw_bytes: bytes::Bytes,
         source: VideoSource,
         hash: String,
-        sample_fps: f32,
+        sample_info: VideoSampleInfo,
     ) -> Self {
         Self {
             frames: Vec::new(),
             rgb_video: Some(rgb_video),
-            sample_fps,
+            sample_info,
             raw_bytes,
             source,
             hash,
@@ -291,7 +331,7 @@ impl VideoClip {
     }
 
     pub fn sample_fps(&self) -> f32 {
-        self.sample_fps
+        self.sample_info.sample_fps
     }
 
     pub fn materialized_frames(&self) -> Result<Vec<DynamicImage>, String> {

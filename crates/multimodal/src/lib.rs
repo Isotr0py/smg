@@ -10,6 +10,7 @@ mod opencv_buffer;
 pub mod registry;
 pub mod tracker;
 pub mod types;
+pub mod video_sampling;
 pub mod vision;
 
 pub use audio::AudioPreProcessor;
@@ -23,8 +24,9 @@ pub use tracker::{AsyncMultiModalTracker, TrackerOutput};
 pub use types::{
     AudioClip, AudioSource, EncoderFieldLayouts, FieldLayout, ImageDetail, ImageFrame, ImageSize,
     ImageSource, MediaContentPart, Modality, MultiModalData, MultiModalUUIDs, PlaceholderRange,
-    PromptReplacement, RgbFrameRef, TokenId, TrackedMedia, VideoClip, VideoSource,
+    PromptReplacement, RgbFrameRef, TokenId, TrackedMedia, VideoClip, VideoSampleInfo, VideoSource,
 };
+pub use video_sampling::{FrameSamplingPlan, VideoSamplingStrategy, VideoSourceMeta};
 // Re-export vision processing components
 pub use vision::{
     LlavaNextProcessor, LlavaProcessor, PreProcessorConfig, VisionPreProcessor,

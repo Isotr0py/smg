@@ -20,6 +20,7 @@ pub struct TrackerOutput {
 
 pub struct AsyncMultiModalTracker {
     media_connector: Arc<MediaConnector>,
+    video_fetch_config: VideoFetchConfig,
     pending: HashMap<Modality, Vec<PendingTask>>,
     uuids: MultiModalUUIDs,
 }
@@ -28,9 +29,18 @@ impl AsyncMultiModalTracker {
     pub fn new(media_connector: Arc<MediaConnector>) -> Self {
         Self {
             media_connector,
+            video_fetch_config: VideoFetchConfig::default(),
             pending: HashMap::new(),
             uuids: HashMap::new(),
         }
+    }
+
+    /// Override the video fetch/sampling configuration (e.g. from the model's
+    /// `ModelProcessorSpec::video_fetch_config`). Defaults to
+    /// [`VideoFetchConfig::default`], the legacy uniform sampling.
+    pub fn with_video_fetch_config(mut self, video_fetch_config: VideoFetchConfig) -> Self {
+        self.video_fetch_config = video_fetch_config;
+        self
     }
 
     pub fn push_part(&mut self, part: MediaContentPart) -> MultiModalResult<()> {
@@ -131,14 +141,13 @@ impl AsyncMultiModalTracker {
         self.uuids.entry(modality).or_default().push(uuid);
 
         let connector = Arc::clone(&self.media_connector);
+        let video_fetch_config = self.video_fetch_config;
         #[expect(
             clippy::disallowed_methods,
             reason = "spawn handle is stored in self.pending and awaited in finalize(); fire-and-forget is intentional for concurrent media fetching"
         )]
         let handle = tokio::spawn(async move {
-            let clip = connector
-                .fetch_video(source, VideoFetchConfig::default())
-                .await?;
+            let clip = connector.fetch_video(source, video_fetch_config).await?;
             Ok(TrackedMedia::Video(clip))
         });
 
@@ -160,5 +169,45 @@ impl AsyncMultiModalTracker {
         });
 
         self.pending.entry(modality).or_default().push(handle);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{media::MediaConnectorConfig, video_sampling::VideoSamplingStrategy};
+
+    fn test_connector() -> Arc<MediaConnector> {
+        Arc::new(
+            MediaConnector::new(reqwest::Client::new(), MediaConnectorConfig::default())
+                .expect("test media connector"),
+        )
+    }
+
+    #[test]
+    fn default_video_fetch_config_is_legacy_uniform_sampling() {
+        let tracker = AsyncMultiModalTracker::new(test_connector());
+        let cfg = tracker.video_fetch_config;
+        assert_eq!(cfg.min_frames, 4);
+        assert_eq!(cfg.max_frames, 768);
+        assert_eq!(cfg.sample_fps, 2.0);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Uniform);
+    }
+
+    #[test]
+    fn with_video_fetch_config_overrides_sampling() {
+        let tracker = AsyncMultiModalTracker::new(test_connector()).with_video_fetch_config(
+            VideoFetchConfig {
+                min_frames: 8,
+                max_frames: 32,
+                sample_fps: 1.0,
+                strategy: VideoSamplingStrategy::Qwen3Vl,
+            },
+        );
+        let cfg = tracker.video_fetch_config;
+        assert_eq!(cfg.min_frames, 8);
+        assert_eq!(cfg.max_frames, 32);
+        assert_eq!(cfg.sample_fps, 1.0);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::Qwen3Vl);
     }
 }

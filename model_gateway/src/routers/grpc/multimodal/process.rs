@@ -47,8 +47,35 @@ pub(crate) async fn process_multimodal_plan(
 ) -> Result<MultimodalOutput> {
     let log_timing = log_mm_timing_enabled();
     let total_started = Instant::now();
+
+    // Step 1: Resolve the model spec before fetching, so video decode can use
+    // the model's per-spec sampling strategy (HF video processor parity).
+    let config_started = Instant::now();
+    let model_config = components
+        .config_registry
+        .get_or_load(tokenizer_id, tokenizer_source)
+        .await?;
+    let model_type = model_config
+        .config
+        .get("model_type")
+        .and_then(|v| v.as_str());
+    let registry_tokenizer = RegistryTokenizer(tokenizer);
+    let metadata = ModelMetadata {
+        model_id,
+        tokenizer: &registry_tokenizer,
+        config: &model_config.config,
+    };
+    let spec = components
+        .model_registry
+        .lookup(&metadata)
+        .ok_or_else(|| anyhow::anyhow!("Multimodal not supported for model: {model_id}"))?;
+    let config_elapsed_ms = config_started.elapsed().as_secs_f64() * 1000.0;
+
+    let video_fetch_config =
+        spec.video_fetch_config(model_config.video_preprocessor_config.as_ref());
     let media_started = Instant::now();
-    let mut tracker = AsyncMultiModalTracker::new(components.media_connector.clone());
+    let mut tracker = AsyncMultiModalTracker::new(components.media_connector.clone())
+        .with_video_fetch_config(video_fetch_config);
 
     for part in plan.into_parts() {
         tracker
@@ -161,28 +188,8 @@ pub(crate) async fn process_multimodal_plan(
         }
     }
 
-    // Step 2: Resolve model spec and preprocess media.
-    let config_started = Instant::now();
-    let model_config = components
-        .config_registry
-        .get_or_load(tokenizer_id, tokenizer_source)
-        .await?;
-    let model_type = model_config
-        .config
-        .get("model_type")
-        .and_then(|v| v.as_str());
-    let registry_tokenizer = RegistryTokenizer(tokenizer);
-    let metadata = ModelMetadata {
-        model_id,
-        tokenizer: &registry_tokenizer,
-        config: &model_config.config,
-    };
-    let spec = components
-        .model_registry
-        .lookup(&metadata)
-        .ok_or_else(|| anyhow::anyhow!("Multimodal not supported for model: {model_id}"))?;
-    let config_elapsed_ms = config_started.elapsed().as_secs_f64() * 1000.0;
-
+    // Step 2: Preprocess media (the spec and model config were resolved in
+    // step 1, before the fetch, to feed the tracker the video sampling config).
     let preprocess_started = Instant::now();
     let mut prepared_parts = Vec::with_capacity(media_batches.len());
     // Every modality batch is independent until prompt expansion. Poll all
@@ -731,18 +738,18 @@ fn explicit_feature_ranges(
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
-    use llm_multimodal::VideoSource;
+    use llm_multimodal::{VideoSampleInfo, VideoSource};
 
     use super::*;
 
     #[test]
     fn decoded_video_sample_fps_overrides_processor_default() {
-        let video = VideoClip::new_with_sample_fps(
+        let video = VideoClip::new_with_sample_info(
             Vec::new(),
             Bytes::new(),
             VideoSource::InlineBytes,
             "video-hash".to_string(),
-            0.8,
+            VideoSampleInfo::from_sample_fps(0.8),
         );
 
         let config = with_video_sample_fps(PreProcessorConfig::default(), &video);

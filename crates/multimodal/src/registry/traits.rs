@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::{
     audio::AudioPreProcessor,
     encoder_inputs::PreprocessedEncoderInputs,
+    media::VideoFetchConfig,
     types::{EncoderFieldLayouts, FieldLayout, Modality, PromptReplacement, TokenId},
     vision::PreProcessorConfig,
 };
@@ -222,6 +223,22 @@ pub trait ModelProcessorSpec: Send + Sync {
     }
 
     fn processor_kwargs(&self, metadata: &ModelMetadata) -> RegistryResult<Value>;
+
+    /// Per-model video fetch/sampling configuration, mirroring the model's HF
+    /// video processor semantics.
+    ///
+    /// `video_preprocessor_config` is the model's parsed
+    /// `video_preprocessor_config.json` when the checkpoint ships one;
+    /// strategy parameters are read from its `extra` map with HF defaults as
+    /// fallback (JSON > spec default). The default implementation returns
+    /// [`VideoFetchConfig::default`] (uniform sampling), which is also the
+    /// right answer for video-less specs.
+    fn video_fetch_config(
+        &self,
+        _video_preprocessor_config: Option<&PreProcessorConfig>,
+    ) -> VideoFetchConfig {
+        VideoFetchConfig::default()
+    }
 
     /// Build the audio preprocessor for this model, if it supports audio.
     ///
@@ -457,6 +474,14 @@ mod tests {
         assert_eq!(
             env_count_override(&VALID, "SMG_TEST_MAX_COUNT_VALID"),
             Some(20)
+        );
+    }
+
+    #[test]
+    fn default_video_fetch_config_hook_returns_global_default() {
+        assert_eq!(
+            TestSpec.video_fetch_config(None),
+            VideoFetchConfig::default()
         );
     }
 }

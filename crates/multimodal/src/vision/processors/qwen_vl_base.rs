@@ -391,8 +391,10 @@ impl QwenVLProcessorBase {
                 "Qwen video patch buffer size overflow: patches={num_patches}, features={patch_features}"
             ))
         })?;
-        // MediaConnector samples video at 2 fps by default. A checkpoint may
-        // override that value in video_preprocessor_config.json.
+        // The connector reports the effective sampling fps here (injected via
+        // `with_video_sample_fps`); it reflects the model's
+        // video_preprocessor_config.json and frame-count clamps. Defaults to
+        // the HF 2 fps when no clip metadata is available.
         let sample_fps = config.get_extra::<f32>("fps").unwrap_or(2.0);
         if !sample_fps.is_finite() || sample_fps <= 0.0 {
             return Err(TransformError::ShapeError(format!(
