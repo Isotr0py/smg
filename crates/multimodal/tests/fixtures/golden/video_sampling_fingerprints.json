@@ -1,0 +1,2022 @@
+{
+  "generator": "generate_video_sampling_golden.py",
+  "transformers": "5.14.1",
+  "cases": [
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "indices_tail": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "fnv1a_indices_u32le": "36b162e6974a2665"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 8,
+      "indices_head": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "indices_tail": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "fnv1a_indices_u32le": "1bd7c525a2b0741d"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 41,
+      "indices_head": [
+        0,
+        12,
+        25,
+        37,
+        49,
+        62,
+        74,
+        86
+      ],
+      "indices_tail": [
+        406,
+        418,
+        430,
+        443,
+        455,
+        467,
+        480,
+        492
+      ],
+      "fnv1a_indices_u32le": "6bb114a06012697d"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 83,
+      "indices_head": [
+        0,
+        12,
+        24,
+        37,
+        49,
+        61,
+        73,
+        85
+      ],
+      "indices_tail": [
+        914,
+        926,
+        938,
+        950,
+        962,
+        975,
+        987,
+        999
+      ],
+      "fnv1a_indices_u32le": "8e22b33e16ea0a5f"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 416,
+      "indices_head": [
+        0,
+        12,
+        24,
+        36,
+        48,
+        60,
+        72,
+        84
+      ],
+      "indices_tail": [
+        4915,
+        4927,
+        4939,
+        4951,
+        4963,
+        4975,
+        4987,
+        4999
+      ],
+      "fnv1a_indices_u32le": "77bb14f6417e75f0"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 768,
+      "indices_head": [
+        0,
+        130,
+        261,
+        391,
+        522,
+        652,
+        782,
+        913
+      ],
+      "indices_tail": [
+        99086,
+        99217,
+        99347,
+        99477,
+        99608,
+        99738,
+        99869,
+        99999
+      ],
+      "fnv1a_indices_u32le": "a4759e67a792dd2c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "indices_tail": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "fnv1a_indices_u32le": "36b162e6974a2665"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 6,
+      "indices_head": [
+        0,
+        19,
+        39,
+        58,
+        78,
+        97
+      ],
+      "indices_tail": [
+        0,
+        19,
+        39,
+        58,
+        78,
+        97
+      ],
+      "fnv1a_indices_u32le": "136d6a822e1be824"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 32,
+      "indices_head": [
+        0,
+        16,
+        32,
+        48,
+        63,
+        79,
+        95,
+        111
+      ],
+      "indices_tail": [
+        381,
+        397,
+        413,
+        429,
+        444,
+        460,
+        476,
+        492
+      ],
+      "fnv1a_indices_u32le": "46a839a64c9733f6"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 66,
+      "indices_head": [
+        0,
+        15,
+        31,
+        46,
+        61,
+        77,
+        92,
+        108
+      ],
+      "indices_tail": [
+        891,
+        907,
+        922,
+        938,
+        953,
+        968,
+        984,
+        999
+      ],
+      "fnv1a_indices_u32le": "d7e5e82ffeaeee35"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 333,
+      "indices_head": [
+        0,
+        15,
+        30,
+        45,
+        60,
+        75,
+        90,
+        105
+      ],
+      "indices_tail": [
+        4894,
+        4909,
+        4924,
+        4939,
+        4954,
+        4969,
+        4984,
+        4999
+      ],
+      "fnv1a_indices_u32le": "08ddb2053aa72a7f"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 768,
+      "indices_head": [
+        0,
+        130,
+        261,
+        391,
+        522,
+        652,
+        782,
+        913
+      ],
+      "indices_tail": [
+        99086,
+        99217,
+        99347,
+        99477,
+        99608,
+        99738,
+        99869,
+        99999
+      ],
+      "fnv1a_indices_u32le": "a4759e67a792dd2c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "indices_tail": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "fnv1a_indices_u32le": "36b162e6974a2665"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "indices_tail": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "fnv1a_indices_u32le": "1eb6d3fad508db15"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 16,
+      "indices_head": [
+        0,
+        33,
+        66,
+        98,
+        131,
+        164,
+        197,
+        230
+      ],
+      "indices_tail": [
+        262,
+        295,
+        328,
+        361,
+        394,
+        426,
+        459,
+        492
+      ],
+      "fnv1a_indices_u32le": "2913b21b4bc0f0f7"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 33,
+      "indices_head": [
+        0,
+        31,
+        62,
+        94,
+        125,
+        156,
+        187,
+        219
+      ],
+      "indices_tail": [
+        780,
+        812,
+        843,
+        874,
+        905,
+        937,
+        968,
+        999
+      ],
+      "fnv1a_indices_u32le": "49ef77fcceb424e5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 166,
+      "indices_head": [
+        0,
+        30,
+        61,
+        91,
+        121,
+        151,
+        182,
+        212
+      ],
+      "indices_tail": [
+        4787,
+        4817,
+        4848,
+        4878,
+        4908,
+        4938,
+        4969,
+        4999
+      ],
+      "fnv1a_indices_u32le": "74c7fd88ef13c917"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 768,
+      "indices_head": [
+        0,
+        130,
+        261,
+        391,
+        522,
+        652,
+        782,
+        913
+      ],
+      "indices_tail": [
+        99086,
+        99217,
+        99347,
+        99477,
+        99608,
+        99738,
+        99869,
+        99999
+      ],
+      "fnv1a_indices_u32le": "a4759e67a792dd2c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "indices_tail": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "fnv1a_indices_u32le": "36b162e6974a2665"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "indices_tail": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "fnv1a_indices_u32le": "1eb6d3fad508db15"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 20,
+      "indices_head": [
+        0,
+        26,
+        52,
+        78,
+        104,
+        129,
+        155,
+        181
+      ],
+      "indices_tail": [
+        311,
+        337,
+        363,
+        388,
+        414,
+        440,
+        466,
+        492
+      ],
+      "fnv1a_indices_u32le": "7f17ab59fed198ab"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 41,
+      "indices_head": [
+        0,
+        25,
+        50,
+        75,
+        100,
+        125,
+        150,
+        175
+      ],
+      "indices_tail": [
+        824,
+        849,
+        874,
+        899,
+        924,
+        949,
+        974,
+        999
+      ],
+      "fnv1a_indices_u32le": "dc02f050c3742769"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 208,
+      "indices_head": [
+        0,
+        24,
+        48,
+        72,
+        97,
+        121,
+        145,
+        169
+      ],
+      "indices_tail": [
+        4830,
+        4854,
+        4878,
+        4902,
+        4927,
+        4951,
+        4975,
+        4999
+      ],
+      "fnv1a_indices_u32le": "02b7737e6dc795e9"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 24.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 768,
+      "indices_head": [
+        0,
+        130,
+        261,
+        391,
+        522,
+        652,
+        782,
+        913
+      ],
+      "indices_tail": [
+        99086,
+        99217,
+        99347,
+        99477,
+        99608,
+        99738,
+        99869,
+        99999
+      ],
+      "fnv1a_indices_u32le": "a4759e67a792dd2c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "indices_tail": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "fnv1a_indices_u32le": "36b162e6974a2665"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "indices_tail": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "fnv1a_indices_u32le": "1eb6d3fad508db15"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 16,
+      "indices_head": [
+        0,
+        33,
+        66,
+        98,
+        131,
+        164,
+        197,
+        230
+      ],
+      "indices_tail": [
+        262,
+        295,
+        328,
+        361,
+        394,
+        426,
+        459,
+        492
+      ],
+      "fnv1a_indices_u32le": "2913b21b4bc0f0f7"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 33,
+      "indices_head": [
+        0,
+        31,
+        62,
+        94,
+        125,
+        156,
+        187,
+        219
+      ],
+      "indices_tail": [
+        780,
+        812,
+        843,
+        874,
+        905,
+        937,
+        968,
+        999
+      ],
+      "fnv1a_indices_u32le": "49ef77fcceb424e5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 166,
+      "indices_head": [
+        0,
+        30,
+        61,
+        91,
+        121,
+        151,
+        182,
+        212
+      ],
+      "indices_tail": [
+        4787,
+        4817,
+        4848,
+        4878,
+        4908,
+        4938,
+        4969,
+        4999
+      ],
+      "fnv1a_indices_u32le": "74c7fd88ef13c917"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 30.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 768,
+      "indices_head": [
+        0,
+        130,
+        261,
+        391,
+        522,
+        652,
+        782,
+        913
+      ],
+      "indices_tail": [
+        99086,
+        99217,
+        99347,
+        99477,
+        99608,
+        99738,
+        99869,
+        99999
+      ],
+      "fnv1a_indices_u32le": "a4759e67a792dd2c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "indices_tail": [
+        0,
+        2,
+        4,
+        6
+      ],
+      "fnv1a_indices_u32le": "36b162e6974a2665"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 4,
+      "indices_head": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "indices_tail": [
+        0,
+        32,
+        65,
+        97
+      ],
+      "fnv1a_indices_u32le": "1eb6d3fad508db15"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 8,
+      "indices_head": [
+        0,
+        70,
+        141,
+        211,
+        281,
+        351,
+        422,
+        492
+      ],
+      "indices_tail": [
+        0,
+        70,
+        141,
+        211,
+        281,
+        351,
+        422,
+        492
+      ],
+      "fnv1a_indices_u32le": "68acebfb7e7f63e9"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 16,
+      "indices_head": [
+        0,
+        67,
+        133,
+        200,
+        266,
+        333,
+        400,
+        466
+      ],
+      "indices_tail": [
+        533,
+        599,
+        666,
+        733,
+        799,
+        866,
+        932,
+        999
+      ],
+      "fnv1a_indices_u32le": "02bd091c412a2b05"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 83,
+      "indices_head": [
+        0,
+        61,
+        122,
+        183,
+        244,
+        305,
+        366,
+        427
+      ],
+      "indices_tail": [
+        4572,
+        4633,
+        4694,
+        4755,
+        4816,
+        4877,
+        4938,
+        4999
+      ],
+      "fnv1a_indices_u32le": "c1fc3e88d40696c3"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 60.0,
+      "fps": 1.0,
+      "min_frames": 4,
+      "max_frames": 768,
+      "num_sampled": 768,
+      "indices_head": [
+        0,
+        130,
+        261,
+        391,
+        522,
+        652,
+        782,
+        913
+      ],
+      "indices_tail": [
+        99086,
+        99217,
+        99347,
+        99477,
+        99608,
+        99738,
+        99869,
+        99999
+      ],
+      "fnv1a_indices_u32le": "a4759e67a792dd2c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 7,
+      "indices_head": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "fnv1a_indices_u32le": "ae7a689bc2e9f352"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 8,
+      "indices_head": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "indices_tail": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "fnv1a_indices_u32le": "1bd7c525a2b0741d"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 41,
+      "indices_head": [
+        0,
+        12,
+        25,
+        37,
+        49,
+        62,
+        74,
+        86
+      ],
+      "indices_tail": [
+        406,
+        418,
+        430,
+        443,
+        455,
+        467,
+        480,
+        492
+      ],
+      "fnv1a_indices_u32le": "6bb114a06012697d"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        16,
+        32,
+        48,
+        63,
+        79,
+        95,
+        111
+      ],
+      "indices_tail": [
+        888,
+        904,
+        920,
+        936,
+        951,
+        967,
+        983,
+        999
+      ],
+      "fnv1a_indices_u32le": "d0736cec402f40b0"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        79,
+        159,
+        238,
+        317,
+        397,
+        476,
+        555
+      ],
+      "indices_tail": [
+        4444,
+        4523,
+        4602,
+        4682,
+        4761,
+        4840,
+        4920,
+        4999
+      ],
+      "fnv1a_indices_u32le": "ddbb09241aa0b70c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 24.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        1587,
+        3175,
+        4762,
+        6349,
+        7936,
+        9524,
+        11111
+      ],
+      "indices_tail": [
+        88888,
+        90475,
+        92063,
+        93650,
+        95237,
+        96824,
+        98412,
+        99999
+      ],
+      "fnv1a_indices_u32le": "ae4c0b85c8da3ae5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 7,
+      "indices_head": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "fnv1a_indices_u32le": "ae7a689bc2e9f352"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 8,
+      "indices_head": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "indices_tail": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "fnv1a_indices_u32le": "1bd7c525a2b0741d"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 32,
+      "indices_head": [
+        0,
+        16,
+        32,
+        48,
+        63,
+        79,
+        95,
+        111
+      ],
+      "indices_tail": [
+        381,
+        397,
+        413,
+        429,
+        444,
+        460,
+        476,
+        492
+      ],
+      "fnv1a_indices_u32le": "46a839a64c9733f6"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        16,
+        32,
+        48,
+        63,
+        79,
+        95,
+        111
+      ],
+      "indices_tail": [
+        888,
+        904,
+        920,
+        936,
+        951,
+        967,
+        983,
+        999
+      ],
+      "fnv1a_indices_u32le": "d0736cec402f40b0"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        79,
+        159,
+        238,
+        317,
+        397,
+        476,
+        555
+      ],
+      "indices_tail": [
+        4444,
+        4523,
+        4602,
+        4682,
+        4761,
+        4840,
+        4920,
+        4999
+      ],
+      "fnv1a_indices_u32le": "ddbb09241aa0b70c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 30.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        1587,
+        3175,
+        4762,
+        6349,
+        7936,
+        9524,
+        11111
+      ],
+      "indices_tail": [
+        88888,
+        90475,
+        92063,
+        93650,
+        95237,
+        96824,
+        98412,
+        99999
+      ],
+      "fnv1a_indices_u32le": "ae4c0b85c8da3ae5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 1,
+      "indices_head": [
+        0
+      ],
+      "indices_tail": [
+        0
+      ],
+      "fnv1a_indices_u32le": "4d25767f9dce13f5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 2,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 2,
+      "indices_head": [
+        0,
+        1
+      ],
+      "indices_tail": [
+        0,
+        1
+      ],
+      "fnv1a_indices_u32le": "08cd4c29d1e47d34"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 3,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 3,
+      "indices_head": [
+        0,
+        1,
+        2
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2
+      ],
+      "fnv1a_indices_u32le": "756241e1be8c9396"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 7,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 7,
+      "indices_head": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "indices_tail": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "fnv1a_indices_u32le": "ae7a689bc2e9f352"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 98,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 8,
+      "indices_head": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "indices_tail": [
+        0,
+        14,
+        28,
+        42,
+        55,
+        69,
+        83,
+        97
+      ],
+      "fnv1a_indices_u32le": "1bd7c525a2b0741d"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 493,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 16,
+      "indices_head": [
+        0,
+        33,
+        66,
+        98,
+        131,
+        164,
+        197,
+        230
+      ],
+      "indices_tail": [
+        262,
+        295,
+        328,
+        361,
+        394,
+        426,
+        459,
+        492
+      ],
+      "fnv1a_indices_u32le": "2913b21b4bc0f0f7"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 1000,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 33,
+      "indices_head": [
+        0,
+        31,
+        62,
+        94,
+        125,
+        156,
+        187,
+        219
+      ],
+      "indices_tail": [
+        780,
+        812,
+        843,
+        874,
+        905,
+        937,
+        968,
+        999
+      ],
+      "fnv1a_indices_u32le": "49ef77fcceb424e5"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 5000,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        79,
+        159,
+        238,
+        317,
+        397,
+        476,
+        555
+      ],
+      "indices_tail": [
+        4444,
+        4523,
+        4602,
+        4682,
+        4761,
+        4840,
+        4920,
+        4999
+      ],
+      "fnv1a_indices_u32le": "ddbb09241aa0b70c"
+    },
+    {
+      "model": "qwen3_vl",
+      "total_frames": 100000,
+      "source_fps": 60.0,
+      "fps": 2.0,
+      "min_frames": 8,
+      "max_frames": 64,
+      "num_sampled": 64,
+      "indices_head": [
+        0,
+        1587,
+        3175,
+        4762,
+        6349,
+        7936,
+        9524,
+        11111
+      ],
+      "indices_tail": [
+        88888,
+        90475,
+        92063,
+        93650,
+        95237,
+        96824,
+        98412,
+        99999
+      ],
+      "fnv1a_indices_u32le": "ae4c0b85c8da3ae5"
+    }
+  ]
+}
