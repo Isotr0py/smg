@@ -21,6 +21,8 @@ use qwen3_asr::Qwen3AsrSpec;
 use qwen3_omni::Qwen3OmniSpec;
 use qwen3_vl::Qwen3VLVisionSpec;
 use qwen_vl::QwenVLVisionSpec;
+// Model-specific video sampling math, dispatched from `crate::video_sampling`.
+pub(crate) use qwen3_vl::qwen3_vl_frame_indices;
 // Re-export public API from traits.
 pub use traits::{
     MediaPartOrder, ModelMetadata, ModelProcessorSpec, ModelRegistryError, RegistryResult,
