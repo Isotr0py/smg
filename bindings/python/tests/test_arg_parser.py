@@ -777,6 +777,10 @@ class TestParseRouterArgs:
             "8080",
             "--service-discovery-namespace",
             "default",
+            "--kv-connector-annotation",
+            "example.com/connector",
+            "--kv-engine-id-annotation",
+            "example.com/engine-id",
         ]
         args_b = [
             "--service-discovery",
@@ -787,6 +791,10 @@ class TestParseRouterArgs:
             "8080",
             "--service-discovery-namespace",
             "default",
+            "--kv-connector-annotation",
+            "example.com/connector",
+            "--kv-engine-id-annotation",
+            "example.com/engine-id",
         ]
 
         for args in [args_a, args_b]:
@@ -796,6 +804,14 @@ class TestParseRouterArgs:
             assert router_args.selector == {"app": "worker", "env": "prod"}
             assert router_args.service_discovery_port == 8080
             assert router_args.service_discovery_namespace == "default"
+            assert router_args.kv_connector_annotation == "example.com/connector"
+            assert router_args.kv_engine_id_annotation == "example.com/engine-id"
+
+        parser = argparse.ArgumentParser()
+        RouterArgs.add_cli_args(parser)
+        defaults = parser.parse_args([])
+        assert defaults.kv_connector_annotation == RouterArgs.kv_connector_annotation
+        assert defaults.kv_engine_id_annotation == RouterArgs.kv_engine_id_annotation
 
     def test_repeated_list_flags_accumulate(self):
         """Repeated occurrences of list flags append, matching the Rust CLI."""

@@ -849,6 +849,27 @@ impl ConfigValidator {
             });
         }
 
+        for (field, value) in [
+            (
+                "discovery.kv_connector_annotation",
+                &discovery.kv_connector_annotation,
+            ),
+            (
+                "discovery.kv_engine_id_annotation",
+                &discovery.kv_engine_id_annotation,
+            ),
+        ] {
+            let trimmed = value.trim();
+            if trimmed.is_empty() || trimmed != value {
+                return Err(ConfigError::InvalidValue {
+                    field: field.to_string(),
+                    value: value.clone(),
+                    reason: "Annotation name must not be empty or padded with whitespace"
+                        .to_string(),
+                });
+            }
+        }
+
         match mode {
             RoutingMode::Regular { .. } => {
                 if discovery.selector.is_empty() {
@@ -1511,6 +1532,36 @@ mod tests {
 
         // Should pass validation since service discovery is enabled
         assert!(ConfigValidator::validate(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_invalid_kv_annotation_names() {
+        for (field, kv_connector_annotation, kv_engine_id_annotation) in [
+            (
+                "discovery.kv_connector_annotation",
+                " ",
+                "smg.ai/kv-engine-id",
+            ),
+            (
+                "discovery.kv_engine_id_annotation",
+                "smg.ai/kv-connector",
+                " smg.ai/kv-engine-id",
+            ),
+        ] {
+            let mut config = regular_mode_config();
+            config.discovery = Some(DiscoveryConfig {
+                enabled: true,
+                selector: [("app".to_string(), "worker".to_string())].into(),
+                kv_connector_annotation: kv_connector_annotation.to_string(),
+                kv_engine_id_annotation: kv_engine_id_annotation.to_string(),
+                ..Default::default()
+            });
+
+            assert!(matches!(
+                ConfigValidator::validate(&config),
+                Err(ConfigError::InvalidValue { field: ref actual, .. }) if actual == field
+            ));
+        }
     }
 
     #[test]
