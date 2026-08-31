@@ -554,14 +554,22 @@ impl RequestExecutionStage {
             _ => None,
         };
 
-        // Decode reuses the request minus pixels: it receives KV via the P/D
-        // transfer, and prefill reads and unlinks any /dev/shm segments, so a
-        // reused ShmHandle would be unreadable. Same request_id on both legs
-        // is load-bearing for NIXL P/D correlation on vLLM < 0.13. The
-        // pixel-free leg is the clone, so pixel tensors are never duplicated
-        // and die with the prefill send. Per-image mm hashes stay in the
-        // clone and become the decode leg's cache_salt.
-        let mut decode_request = proto_request.clone_without_mm_pixels();
+        // Decode normally reuses the request minus pixels: it receives KV via
+        // the P/D transfer, and prefill reads and unlinks any /dev/shm
+        // segments, so a reused ShmHandle would be unreadable. Same request_id
+        // on both legs is load-bearing for NIXL P/D correlation on vLLM <
+        // 0.13. The pixel-free leg is the clone, so pixel tensors are never
+        // duplicated and die with the prefill send; the per-image mm identity
+        // and grid tensors survive for decode-side hashing and positions.
+        // Without a KV handoff (n>1) decode recomputes the prompt locally and
+        // must run the vision encoder, so that leg keeps the full multimodal
+        // payload (SHM-backed tensors cannot serve both legs and fail loudly
+        // on the decode read).
+        let mut decode_request = if relay_kv_params {
+            proto_request.clone_without_mm_pixels()
+        } else {
+            proto_request.clone()
+        };
         // Sanitize prefill sampling (max_tokens=1, n=1), stream=false.
         let mut prefill_request = proto_request;
         prefill_request.sanitize_sampling_for_prefill(1);
@@ -837,16 +845,30 @@ mod tests {
     }
 
     #[test]
-    fn clone_without_mm_pixels_keeps_vllm_identity() {
-        // The decode leg drops the tensors but keeps the per-image identity —
-        // downstream it becomes the engine cache_salt.
+    fn clone_without_mm_pixels_keeps_vllm_identity_and_grid_tensors() {
+        // The decode leg drops the pixel tensors but keeps the per-image
+        // identity and the inline M-RoPE grid tensors.
+        let grid = vllm::TensorData {
+            shape: vec![1, 3],
+            dtype: "int64".to_string(),
+            payload: Some(vllm::tensor_data::Payload::Inline(vec![0; 24])),
+        };
         let mut request = ProtoGenerateRequest::Vllm(Box::new(vllm::GenerateRequest {
             request_id: "pd-2".to_string(),
             mm_inputs: Some(vllm::MultimodalInputs {
                 pixel_values: Some(vllm::TensorData::default()),
-                model_specific_tensors: std::collections::HashMap::from([(
-                    "image_grid_thw".to_string(),
-                    vllm::TensorData::default(),
+                model_specific_tensors: std::collections::HashMap::from([
+                    ("image_grid_thw".to_string(), grid.clone()),
+                    // Payload-less grids and non-grid tensors are dropped.
+                    ("video_grid_thw".to_string(), vllm::TensorData::default()),
+                    ("aspect_ratios".to_string(), grid.clone()),
+                    // Flat-classified grid keys keep their sizes tensor.
+                    ("second_per_grid_ts".to_string(), grid.clone()),
+                    ("ts_sizes".to_string(), grid),
+                ]),
+                flat_keys: std::collections::HashMap::from([(
+                    "second_per_grid_ts".to_string(),
+                    "ts_sizes".to_string(),
                 )]),
                 im_token_id: Some(151_655),
                 mm_placeholders: vec![vllm::PlaceholderRange {
@@ -854,7 +876,12 @@ mod tests {
                     length: 4,
                 }],
                 mm_hashes: vec!["h1".to_string()],
-                batched_keys: vec!["pixel_values".to_string()],
+                batched_keys: vec![
+                    "pixel_values".to_string(),
+                    "image_grid_thw".to_string(),
+                    "aspect_ratios".to_string(),
+                ],
+                keep_on_cpu_keys: vec!["image_grid_thw".to_string()],
                 ..Default::default()
             }),
             ..Default::default()
@@ -871,17 +898,31 @@ mod tests {
             original_mm.pixel_values.is_some(),
             "prefill leg keeps pixels"
         );
-        assert_eq!(original_mm.model_specific_tensors.len(), 1);
-        assert_eq!(original_mm.batched_keys, vec!["pixel_values".to_string()]);
+        assert_eq!(original_mm.model_specific_tensors.len(), 5);
+        assert_eq!(original_mm.batched_keys.len(), 3);
         let decode_mm = decode.mm_inputs.expect("decode leg keeps identity");
         assert!(
             decode_mm.pixel_values.is_none(),
             "decode leg never carries pixels"
         );
-        assert!(decode_mm.model_specific_tensors.is_empty());
-        assert!(decode_mm.batched_keys.is_empty());
-        assert!(decode_mm.flat_keys.is_empty());
-        assert!(decode_mm.keep_on_cpu_keys.is_empty());
+        let mut decode_keys: Vec<_> = decode_mm.model_specific_tensors.keys().collect();
+        decode_keys.sort();
+        assert_eq!(
+            decode_keys,
+            vec!["image_grid_thw", "second_per_grid_ts", "ts_sizes"]
+        );
+        assert_eq!(decode_mm.batched_keys, vec!["image_grid_thw".to_string()]);
+        assert_eq!(
+            decode_mm.keep_on_cpu_keys,
+            vec!["image_grid_thw".to_string()]
+        );
+        assert_eq!(
+            decode_mm.flat_keys,
+            std::collections::HashMap::from([(
+                "second_per_grid_ts".to_string(),
+                "ts_sizes".to_string()
+            )])
+        );
         assert_eq!(decode_mm.mm_hashes, vec!["h1".to_string()]);
         assert_eq!(decode_mm.mm_placeholders.len(), 1);
         assert_eq!(decode_mm.im_token_id, Some(151_655));
