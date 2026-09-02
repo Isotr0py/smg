@@ -1,10 +1,11 @@
 //! HuggingFace golden checks for IO-time video frame sampling.
 //!
 //! The fixture is produced by `scripts/generate_video_sampling_golden.py`
-//! using the real `Qwen3VLVideoProcessor.sample_frames`; it pins SMG's
-//! sampling strategy to HF's exact frame indices (which source frames get
-//! decoded), complementing `qwen_preprocess_golden.rs` (what happens to the
-//! selected frames).
+//! using the real `Qwen3VLVideoProcessor.sample_frames` and
+//! `Glm5NextVideoProcessor.sample_frames`; it pins SMG's sampling strategies
+//! to HF's exact frame indices (which source frames get decoded),
+//! complementing `qwen_preprocess_golden.rs` (what happens to the selected
+//! frames).
 #![allow(clippy::expect_used, clippy::panic)]
 
 use llm_multimodal::video_sampling::{VideoSamplingStrategy, VideoSourceMeta};
@@ -25,6 +26,8 @@ struct SamplingCase {
     fps: f32,
     min_frames: usize,
     max_frames: usize,
+    max_duration: f64,
+    has_duration: bool,
     num_sampled: usize,
     indices_head: Vec<u32>,
     indices_tail: Vec<u32>,
@@ -46,7 +49,7 @@ fn fnv1a_indices_u32le(indices: &[usize]) -> u64 {
 }
 
 #[test]
-fn qwen3_vl_sampling_matches_huggingface_golden() {
+fn video_sampling_matches_huggingface_golden() {
     let golden: GoldenDocument = serde_json::from_str(include_str!(
         "fixtures/golden/video_sampling_fingerprints.json"
     ))
@@ -55,24 +58,39 @@ fn qwen3_vl_sampling_matches_huggingface_golden() {
     assert!(!golden.transformers.is_empty());
     assert_eq!(
         golden.cases.len(),
-        81,
+        164,
         "video sampling golden coverage changed"
     );
 
     for case in &golden.cases {
-        assert_eq!(case.model, "qwen3_vl");
+        let strategy = match case.model.as_str() {
+            "qwen3_vl" => VideoSamplingStrategy::Qwen3Vl,
+            "glm5_next" => VideoSamplingStrategy::Glm5Next {
+                max_duration: case.max_duration,
+            },
+            model => panic!("unknown video sampling golden model {model}"),
+        };
         let source = VideoSourceMeta {
             total_frames: case.total_frames,
             original_fps: case.source_fps,
-            duration_seconds: Some(case.total_frames as f64 / case.source_fps),
+            duration_seconds: case
+                .has_duration
+                .then_some(case.total_frames as f64 / case.source_fps),
         };
-        let indices = VideoSamplingStrategy::Qwen3Vl
+        let indices = strategy
             .plan(&source, case.min_frames, case.max_frames, case.fps)
             .indices;
 
         let label = format!(
-            "total={} src_fps={} fps={} min={} max={}",
-            case.total_frames, case.source_fps, case.fps, case.min_frames, case.max_frames
+            "{} total={} src_fps={} fps={} min={} max={} max_duration={} has_duration={}",
+            case.model,
+            case.total_frames,
+            case.source_fps,
+            case.fps,
+            case.min_frames,
+            case.max_frames,
+            case.max_duration,
+            case.has_duration
         );
         assert_eq!(
             indices.len(),

@@ -20,7 +20,7 @@ pub struct VideoSourceMeta {
 }
 
 /// How frames are picked out of a source video.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum VideoSamplingStrategy {
     /// Legacy uniform sampling: `round(duration * sample_fps)` frames on a
     /// floor-linspace grid. The default; behavior is identical to the
@@ -33,6 +33,11 @@ pub enum VideoSamplingStrategy {
     /// `[min_frames, min(max_frames, total_frames)]`, on a round-linspace
     /// grid (numpy half-to-even ties).
     Qwen3Vl,
+    /// HF `Glm5NextVideoProcessor.sample_frames` parity: threshold walk at
+    /// `sample_fps` with a `max_frames` cap, linspace pad/trim to exactly
+    /// `int(duration * fps)` frames, dedup, and even-count padding.
+    /// `max_duration <= 0` means uncapped (the HF default).
+    Glm5Next { max_duration: f64 },
 }
 
 /// The frames to decode, as indices into the source video.
@@ -57,6 +62,13 @@ impl VideoSamplingStrategy {
             Self::Qwen3Vl => {
                 crate::registry::qwen3_vl_frame_indices(source, min_frames, max_frames, sample_fps)
             }
+            Self::Glm5Next { max_duration } => crate::registry::glm5_next_frame_indices(
+                source,
+                min_frames,
+                max_frames,
+                sample_fps,
+                max_duration,
+            ),
         };
         FrameSamplingPlan { indices }
     }

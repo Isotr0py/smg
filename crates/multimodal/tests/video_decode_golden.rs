@@ -132,4 +132,31 @@ async fn decode_samples_match_strategy_plans_on_real_video() {
         (clip.sample_info.sample_fps - 7.0 / DURATION_SECONDS as f32).abs() < 1e-3,
         "Uniform effective fps is planned count over duration"
     );
+
+    // Glm5Next: extract_t = int(98/30 * 2) = 6; the threshold walk stops at
+    // 3s and yields exactly 6 frames, no pad/trim. Exercises the strategy
+    // end to end through VideoFetchConfig and the ffmpeg plan path.
+    let clip = connector
+        .fetch_video(
+            MediaSource::InlineBytes(fixture_bytes()),
+            VideoFetchConfig {
+                min_frames: 1,
+                max_frames: 2048,
+                sample_fps: 2.0,
+                strategy: VideoSamplingStrategy::Glm5Next { max_duration: 0.0 },
+            },
+        )
+        .await
+        .expect("decode indexed video with Glm5Next strategy");
+    assert_eq!(
+        clip.materialized_frames()
+            .expect("materialize frames")
+            .len(),
+        6,
+        "Glm5Next must sample exactly 6 frames"
+    );
+    assert!(
+        (clip.sample_info.sample_fps - 6.0 / DURATION_SECONDS as f32).abs() < 1e-3,
+        "Glm5Next effective fps is planned count over duration"
+    );
 }
