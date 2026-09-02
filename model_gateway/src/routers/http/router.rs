@@ -1243,8 +1243,10 @@ impl Router {
             // Preserve headers for streaming response
             let mut response_headers = header_utils::preserve_response_headers(res.headers());
             header_utils::insert_routed_worker_id(&mut response_headers, worker_url);
-            // Ensure we set the correct content-type for SSE
-            response_headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            if status.is_success() && !response_headers.contains_key(CONTENT_TYPE) {
+                response_headers
+                    .insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+            }
 
             let stream = res.bytes_stream();
             // Bounded channel applies backpressure: a slow client makes the
