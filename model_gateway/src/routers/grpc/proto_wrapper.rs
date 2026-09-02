@@ -294,17 +294,16 @@ impl VllmMultimodalData {
             .model_specific_tensors
             .into_iter()
             .map(|(k, v)| {
+                // Grid tensors are a few ints and must survive the PD decode
+                // clone's inline-only retention: never route them via SHM.
+                let via_shm = shm_enabled && !VLLM_MROPE_GRID_KEYS.contains(&k.as_str());
+                let payload = vllm_tensor_payload(v.data, via_shm, shm_min_bytes, None);
                 (
                     k,
                     vllm::TensorData {
                         shape: v.shape,
                         dtype: v.dtype,
-                        payload: Some(vllm_tensor_payload(
-                            v.data,
-                            shm_enabled,
-                            shm_min_bytes,
-                            None,
-                        )),
+                        payload: Some(payload),
                     },
                 )
             })
@@ -1096,6 +1095,14 @@ pub enum ProtoRequest {
 }
 
 impl ProtoRequest {
+    /// Serialized wire size, for the release metric.
+    pub fn wire_len(&self) -> usize {
+        match self {
+            Self::Generate(request) => request.wire_len(),
+            Self::Embed(request) => request.wire_len(),
+        }
+    }
+
     /// Get request ID from either variant
     pub fn request_id(&self) -> &str {
         match self {
@@ -1114,6 +1121,10 @@ pub enum ProtoGenerateRequest {
     Mlx(Box<mlx::GenerateRequest>),
     TokenSpeed(Box<tokenspeed::GenerateRequest>),
 }
+
+/// Per-item grid metadata the engine reads to compute M-RoPE positions
+/// (`_get_mrope_input_positions` in vLLM); a few ints per item.
+const VLLM_MROPE_GRID_KEYS: [&str; 3] = ["image_grid_thw", "video_grid_thw", "second_per_grid_ts"];
 
 impl ProtoGenerateRequest {
     /// Append stop token ids to the request's sampling params (TRT-LLM keeps
@@ -1296,9 +1307,26 @@ impl ProtoGenerateRequest {
         }
     }
 
+    /// Serialized wire size, for the release metric.
+    pub fn wire_len(&self) -> usize {
+        use prost::Message;
+        match self {
+            Self::Sglang(req) => req.encoded_len(),
+            Self::Vllm(req) => req.encoded_len(),
+            Self::Trtllm(req) => req.encoded_len(),
+            Self::Mlx(req) => req.encoded_len(),
+            Self::TokenSpeed(req) => req.encoded_len(),
+        }
+    }
+
     /// Clone for a PD leg that carries no multimodal pixels (see
     /// `clear_mm_pixel_values`), without ever duplicating them: detach,
-    /// clone, reattach to `self`.
+    /// clone, reattach to `self`. vLLM keeps `mm_hashes`/placeholders and the
+    /// M-RoPE grid tensors in the clone: the servicer rebuilds pixel-less
+    /// mm features from them, so the decode worker computes grid-aware
+    /// positions and per-image block hashes instead of treating the prompt
+    /// as text (which mis-rotates every generated token on Qwen-VL models
+    /// and lets different images alias in the decode prefix cache).
     pub fn clone_without_mm_pixels(&mut self) -> Self {
         match self {
             Self::Sglang(req) => {
@@ -1309,7 +1337,76 @@ impl ProtoGenerateRequest {
             }
             Self::Vllm(req) => {
                 let mm = req.mm_inputs.take();
-                let clone = Self::Vllm(req.clone());
+                let mut clone = Self::Vllm(req.clone());
+                // Rebuild the identity (no pixel tensors) on the clone; a
+                // hash-less payload carries no identity worth keeping.
+                if let (Self::Vllm(clone_req), Some(mm_ref)) = (&mut clone, mm.as_ref()) {
+                    if !mm_ref.mm_hashes.is_empty() {
+                        // M-RoPE models (Qwen-VL) need the grid tensors to
+                        // compute decode-side positions; they are a few ints
+                        // per item, so keep them (inline payloads only — an
+                        // SHM segment is unreadable after the prefill send).
+                        let inline_tensor = |key: &str| {
+                            mm_ref
+                                .model_specific_tensors
+                                .get(key)
+                                .filter(|tensor| {
+                                    matches!(
+                                        tensor.payload,
+                                        Some(vllm::tensor_data::Payload::Inline(_))
+                                    )
+                                })
+                                .cloned()
+                        };
+                        let mut grid_tensors: HashMap<String, vllm::TensorData> =
+                            VLLM_MROPE_GRID_KEYS
+                                .iter()
+                                .filter_map(|key| {
+                                    inline_tensor(key).map(|tensor| (key.to_string(), tensor))
+                                })
+                                .collect();
+                        // A flat-classified grid key needs its sizes tensor to
+                        // keep per-item slicing on the decode leg.
+                        let mut flat_keys = HashMap::new();
+                        for (key, sizes_key) in &mm_ref.flat_keys {
+                            if !grid_tensors.contains_key(key) {
+                                continue;
+                            }
+                            match inline_tensor(sizes_key) {
+                                Some(sizes) => {
+                                    grid_tensors.insert(sizes_key.clone(), sizes);
+                                    flat_keys.insert(key.clone(), sizes_key.clone());
+                                }
+                                None => {
+                                    tracing::warn!(
+                                        grid_key = %key,
+                                        sizes_key = %sizes_key,
+                                        "dropping grid tensor from the PD decode leg: its \
+                                         sizes tensor is not inline"
+                                    );
+                                    grid_tensors.remove(key);
+                                }
+                            }
+                        }
+                        let retained = |keys: &[String]| {
+                            keys.iter()
+                                .filter(|key| grid_tensors.contains_key(*key))
+                                .cloned()
+                                .collect()
+                        };
+                        clone_req.mm_inputs = Some(vllm::MultimodalInputs {
+                            im_token_id: mm_ref.im_token_id,
+                            mm_placeholders: mm_ref.mm_placeholders.clone(),
+                            mm_hashes: mm_ref.mm_hashes.clone(),
+                            modality: mm_ref.modality,
+                            batched_keys: retained(&mm_ref.batched_keys),
+                            keep_on_cpu_keys: retained(&mm_ref.keep_on_cpu_keys),
+                            flat_keys,
+                            model_specific_tensors: grid_tensors,
+                            ..Default::default()
+                        });
+                    }
+                }
                 req.mm_inputs = mm;
                 clone
             }
@@ -1364,6 +1461,18 @@ impl ProtoGenerateRequest {
             Self::Trtllm(req) => &req.request_id,
             Self::Mlx(req) => &req.request_id,
             Self::TokenSpeed(req) => &req.request_id,
+        }
+    }
+
+    /// Set request ID (retry attempts re-mint per-execution engine ids on
+    /// the retained plan).
+    pub fn set_request_id(&mut self, request_id: String) {
+        match self {
+            Self::Sglang(req) => req.request_id = request_id,
+            Self::Vllm(req) => req.request_id = request_id,
+            Self::Trtllm(req) => req.request_id = request_id,
+            Self::Mlx(req) => req.request_id = request_id,
+            Self::TokenSpeed(req) => req.request_id = request_id,
         }
     }
 
@@ -2131,6 +2240,15 @@ pub enum ProtoEmbedRequest {
 }
 
 impl ProtoEmbedRequest {
+    /// Serialized wire size, for the release metric.
+    pub fn wire_len(&self) -> usize {
+        use prost::Message;
+        match self {
+            Self::Sglang(req) => req.encoded_len(),
+            Self::Vllm(req) => req.encoded_len(),
+        }
+    }
+
     /// Get SGLang variant
     #[expect(
         clippy::panic,
@@ -2175,6 +2293,14 @@ impl ProtoEmbedRequest {
         match self {
             Self::Sglang(req) => &req.request_id,
             Self::Vllm(req) => &req.request_id,
+        }
+    }
+
+    /// Set request ID.
+    pub fn set_request_id(&mut self, request_id: String) {
+        match self {
+            Self::Sglang(req) => req.request_id = request_id,
+            Self::Vllm(req) => req.request_id = request_id,
         }
     }
 }

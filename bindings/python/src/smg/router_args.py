@@ -136,7 +136,10 @@ class RouterArgs:
     health_check_interval_secs: int = 60
     health_check_endpoint: str = "/health"
     disable_health_check: bool = False
-    remove_unhealthy_workers: bool = False
+    # None = follow service_discovery: recovery works by removal + discovery
+    # re-registration, so it defaults on exactly when discovery can complete
+    # the loop (resolved by the Rust core).
+    remove_unhealthy_workers: bool | None = None
     # Circuit breaker configuration
     cb_failure_threshold: int = 10
     cb_success_threshold: int = 3
@@ -244,6 +247,10 @@ class RouterArgs:
     # Most bytes the router may buffer for a request it holds only to keep
     # it retryable; larger eligible requests stream and forfeit router retries
     max_buffered_request_bytes: int = 1048576
+    kv_connector_annotation: str = "smg.ai/kv-connector"
+    kv_engine_id_annotation: str = "smg.ai/kv-engine-id"
+    # Per-request image-count limit replacing model spec limits; None keeps spec limits
+    mm_per_request_image_limit: int | None = None
 
     @staticmethod
     def add_cli_args(
@@ -874,6 +881,16 @@ class RouterArgs:
             default=RouterArgs.multimodal_shm_min_bytes,
             help="Minimum multimodal tensor size (bytes) before the SHM transport is used",
         )
+        parser.add_argument(
+            f"--{prefix}mm-per-request-image-limit",
+            type=int,
+            default=RouterArgs.mm_per_request_image_limit,
+            help=(
+                "Per-request image-count limit applied to every model, replacing the"
+                " model spec's built-in limit (e.g. to match the engine's"
+                " --limit-mm-per-prompt). Must be >= 1; unset keeps spec limits."
+            ),
+        )
 
         # Logging configuration
         logging_group.add_argument(
@@ -925,6 +942,18 @@ class RouterArgs:
                 "Kubernetes namespace to watch for pods. If not provided, watches all namespaces"
                 " (requires cluster-wide permissions)"
             ),
+        )
+        k8s_group.add_argument(
+            f"--{prefix}kv-connector-annotation",
+            type=str,
+            default=RouterArgs.kv_connector_annotation,
+            help="vLLM KV connector Pod annotation (default: smg.ai/kv-connector)",
+        )
+        k8s_group.add_argument(
+            f"--{prefix}kv-engine-id-annotation",
+            type=str,
+            default=RouterArgs.kv_engine_id_annotation,
+            help="Per-worker KV engine ID Pod annotation (default: smg.ai/kv-engine-id)",
         )
         k8s_group.add_argument(
             f"--{prefix}encode-selector",
@@ -1206,12 +1235,15 @@ class RouterArgs:
         health_group.add_argument(
             f"--{prefix}remove-unhealthy-workers",
             f"--{prefix}worker-auto-recovery",
-            action="store_true",
+            action=argparse.BooleanOptionalAction,
             default=RouterArgs.remove_unhealthy_workers,
             help=(
                 "Let workers recover after prolonged failure: unhealthy workers"
                 " are removed so service discovery re-registers and re-probes"
-                " them once their engine returns"
+                " them once their engine returns. Defaults to the"
+                " service-discovery setting (recovery-by-removal needs"
+                " discovery to re-add the worker); use the --no- form to keep"
+                " it off under discovery"
             ),
         )
         # Tokenizer configuration

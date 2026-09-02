@@ -45,6 +45,7 @@ from smg_grpc_servicer.vllm.kv_events import (
     stream_kv_events,
 )
 from smg_grpc_servicer.vllm.kv_transfer import params_from_request, params_to_response_fields
+from smg_grpc_servicer.vllm.mm_salt import has_preprocessed_mm_payload, mm_identity_cache_salt
 
 logger = init_logger(__name__)
 SAMPLING_DEFAULT_KEYS = (
@@ -173,8 +174,10 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
         """
         request_id = request.request_id
         input_type = request.WhichOneof("input")
-        has_preprocessed_mm = request.HasField("mm_inputs") and request.mm_inputs.HasField(
-            "pixel_values"
+        # A pixel-less mm payload with grid tensors is the PD decode leg's
+        # form: enough to rebuild mm features (positions + block hashing).
+        has_preprocessed_mm = request.HasField("mm_inputs") and has_preprocessed_mm_payload(
+            request.mm_inputs
         )
         logger.info(
             "Generate request %s: input_type=%s, stream=%s, preprocessed_mm=%s, dp_rank=%s",
@@ -192,6 +195,19 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
             kv_transfer_params = params_from_request(request)
 
             if has_preprocessed_mm and input_type == "tokenized":
+                # A pixel-less payload (PD decode leg) is only decodable with
+                # remote KV: a local recompute would schedule the vision
+                # encoder with no pixels and crash the engine.
+                if not request.mm_inputs.HasField("pixel_values") and kv_transfer_params is None:
+                    logger.warning(
+                        "Request %s: pixel-less multimodal payload with no kv_transfer_params; "
+                        "rejecting (prefill worker did not hand off KV?)",
+                        request_id,
+                    )
+                    raise ValueError(
+                        "multimodal payload carries grid tensors but no pixel_values and "
+                        "no kv_transfer_params; a pixel-less leg requires remote KV"
+                    )
                 # Preprocessed multimodal from Rust router.
                 # Token IDs already have expanded placeholders; tensors are
                 # ready for the model. Bypass the renderer entirely.
@@ -201,6 +217,20 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
                 prompt: TokensPrompt = {"prompt_token_ids": list(request.tokenized.input_ids)}
                 if request.tokenized.original_text:
                     prompt["prompt"] = request.tokenized.original_text
+                # Tensor-less mm payload (grid-less PD decode leg): fold the
+                # kept mm hashes into cache_salt so different images cannot
+                # alias. Grid-carrying legs took the preprocessed path above.
+                if request.HasField("mm_inputs"):
+                    cache_salt = mm_identity_cache_salt(request.mm_inputs.mm_hashes)
+                    if cache_salt is not None:
+                        prompt["cache_salt"] = cache_salt
+                    model_config = getattr(self.engine, "model_config", None)
+                    if model_config is not None and getattr(model_config, "uses_mrope", False):
+                        logger.warning(
+                            "Request %s carries mm identity but no grid tensors on an "
+                            "M-RoPE model; decode-side positions will be text-only",
+                            request_id,
+                        )
                 prompt = self.engine.renderer.process_for_engine(prompt, arrival_time=arrival_time)
             else:
                 prompt = request.text
@@ -608,10 +638,11 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
     ) -> VllmMultiModalInput:
         """Build vLLM MultiModalInput from preprocessed proto data.
 
-        Bypasses HF processor entirely — pixel values and model-specific
-        tensors were already computed by the Rust router.  Field layouts
-        (batched / flat / shared) are also determined by the router via
-        ``batched_keys`` and ``flat_keys`` proto fields.
+        Bypasses HF processor entirely — the tensors were already computed by
+        the Rust router. Pixel values are optional: the PD decode leg carries
+        only the grid tensors (positions + block hashing need no pixels).
+        Field layouts (batched / flat / shared) are also determined by the
+        router via ``batched_keys`` and ``flat_keys`` proto fields.
         """
         prompt_token_ids = list(tokenized.input_ids)
         num_items = len(mm_proto.mm_placeholders)
@@ -628,10 +659,11 @@ class VllmEngineServicer(vllm_engine_pb2_grpc.VllmEngineServicer):
                 return "pixel_values_videos"
             return key
 
-        # Deserialize all tensors from proto
-        hf_dict: dict[str, torch.Tensor] = {
-            mm_key("pixel_values"): _tensor_from_proto(mm_proto.pixel_values),
-        }
+        # Deserialize all tensors from proto. The PD decode leg carries no
+        # pixel_values (KV arrives via the P/D transfer), only grid tensors.
+        hf_dict: dict[str, torch.Tensor] = {}
+        if mm_proto.HasField("pixel_values"):
+            hf_dict[mm_key("pixel_values")] = _tensor_from_proto(mm_proto.pixel_values)
         for key, td in mm_proto.model_specific_tensors.items():
             hf_dict[mm_key(key)] = _tensor_from_proto(td)
 

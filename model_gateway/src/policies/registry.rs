@@ -208,6 +208,13 @@ impl PolicyRegistry {
         })
     }
 
+    /// Whether sticky routing may derive its preferred key from the request
+    /// body's `rid`, requiring automatic body-path selection to keep the body
+    /// readable.
+    pub(crate) fn routing_key_override_enabled(&self) -> bool {
+        self.routing_key_sticky.is_some()
+    }
+
     /// Resolve the effective sticky key: the rid-derived key wins, the
     /// configured routing-key headers are the fallback when no rid is
     /// present. Header keys get the same lineage stripping as rid keys, so a
@@ -377,7 +384,7 @@ impl PolicyRegistry {
 
     /// Set the backend load-snapshot receiver (thread-safe, can be called after
     /// initialization). Propagates to all existing cache-aware policies.
-    pub fn set_load_receiver(&self, rx: Option<LoadReceiver>) {
+    pub(crate) fn set_load_receiver(&self, rx: Option<LoadReceiver>) {
         {
             let mut guard = self.load_rx.write();
             guard.clone_from(&rx);
@@ -1804,7 +1811,7 @@ mod tests {
     }
 
     #[test]
-    fn cache_aware_is_load_aware_only_when_pressure_configured() {
+    fn cache_aware_is_always_load_aware_for_expected_wait() {
         fn cache_aware(
             overlap_decay: f32,
             balance_token_usage_threshold: f32,
@@ -1827,13 +1834,12 @@ mod tests {
             }
         }
 
-        // Plain cache_aware consumes no backend loads — the monitor must
-        // keep skipping load polling for it.
+        // Even without pressure tuning, misses, spills, and equal-affinity
+        // ties use LeastLoad's expected-wait snapshots.
         let plain = PolicyRegistry::new(cache_aware(0.0, 1.0, 1.0));
-        assert!(plain.get_all_load_aware_policies().is_empty());
+        assert_eq!(plain.get_all_load_aware_policies().len(), 1);
 
-        // Any pressure knob makes it load-aware: waiting-prefill decay,
-        // KV-usage balance spread, or the KV-usage overload ceiling.
+        // Pressure knobs do not change that load-aware membership.
         for pressured in [
             cache_aware(1.0, 1.0, 1.0),
             cache_aware(0.0, 0.5, 1.0),

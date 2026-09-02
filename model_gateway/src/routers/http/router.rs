@@ -47,7 +47,7 @@ use crate::{
         metrics::{bool_to_static_str, metrics_labels, Metrics},
         otel_trace::inject_trace_context_http,
     },
-    policies::{PolicyRegistry, SelectWorkerInfo},
+    policies::{policy_filters_unavailable_workers, PolicyRegistry, SelectWorkerInfo},
     routers::{
         common::{
             attach_sized_body,
@@ -76,7 +76,10 @@ use crate::{
         BodyPolicy, RouterTrait,
     },
     wasm::module::{MiddlewareAttachPoint, WasmModuleAttachPoint},
-    worker::{AttachedBody, ConnectionMode, Worker, WorkerLoadGuard, WorkerRegistry, WorkerType},
+    worker::{
+        AttachedBody, ConnectionMode, RoutingPool, Worker, WorkerLoadGuard, WorkerRegistry,
+        WorkerType,
+    },
 };
 
 /// Max body size for a WebRTC `/v1/realtime/calls` SDP offer (10 MiB).
@@ -180,13 +183,15 @@ impl Router {
     }
 
     fn select_first_worker(&self) -> Result<String, String> {
-        let workers = self.worker_registry.get_all();
-        let healthy_workers: Vec<_> = workers.iter().filter(|w| w.is_healthy()).collect();
-        if healthy_workers.is_empty() {
-            Err("No workers are available".to_string())
-        } else {
-            Ok(healthy_workers[0].url().to_string())
-        }
+        // proxy_get_request sends a plain HTTP GET to the returned URL, so
+        // only HTTP-transport workers are eligible: a gRPC or ZMQ worker's
+        // URL cannot serve it.
+        self.worker_registry
+            .get_routing_pool(crate::worker::UNKNOWN_MODEL_ID, RoutingPool::HttpRegular)
+            .iter()
+            .find(|worker| worker.is_healthy())
+            .map(|worker| worker.url().to_string())
+            .ok_or_else(|| "No workers are available".to_string())
     }
 
     async fn proxy_get_request(&self, req: Request<Body>, endpoint: &str) -> Response {
@@ -241,38 +246,38 @@ impl Router {
         headers: Option<&HeaderMap>,
         rid_key: Option<&str>,
     ) -> Option<Arc<dyn Worker>> {
-        // UNKNOWN_MODEL_ID means caller didn't specify a model — find any available worker
-        let model_filter = if model_id == crate::worker::UNKNOWN_MODEL_ID {
-            None
-        } else {
-            Some(model_id)
-        };
-        let workers = self.worker_registry.get_workers_filtered(
-            model_filter,
-            Some(WorkerType::Regular),
-            Some(ConnectionMode::Http),
-            None,  // any runtime type
-            false, // get all workers, we'll filter by is_available() next
-        );
-
-        let available: Vec<Arc<dyn Worker>> = workers
-            .iter()
-            .filter(|w| w.is_available())
-            .cloned()
-            .collect();
-        if available.is_empty() {
-            return None;
-        }
+        let candidates = self
+            .worker_registry
+            .get_routing_pool(model_id, RoutingPool::HttpRegular);
 
         // Get the appropriate policy for this model
         let policy = self.policy_registry.get_policy_or_default(model_id);
+
+        // Most policies already apply the complete availability predicate.
+        // Give them the shared registry snapshot directly instead of cloning
+        // every available worker into a second per-request Vec. Hash policies
+        // currently use a weaker health predicate and retain the pre-filter.
+        let filtered;
+        let available: &[Arc<dyn Worker>] = if policy_filters_unavailable_workers(policy.as_ref()) {
+            &candidates
+        } else {
+            filtered = candidates
+                .iter()
+                .filter(|worker| worker.is_available())
+                .cloned()
+                .collect::<Vec<_>>();
+            &filtered
+        };
+        if available.is_empty() {
+            return None;
+        }
 
         // Get cached hash ring for consistent hashing (O(log n) lookup)
         let hash_ring = self.worker_registry.get_hash_ring(model_id);
 
         let idx = self.policy_registry.select_worker(
             &policy,
-            &available,
+            available,
             &SelectWorkerInfo {
                 request_text: text,
                 tokens,
@@ -529,18 +534,9 @@ impl Router {
             Some(w) => w,
             None => {
                 // Distinguish "no workers for this model" from "workers exist but unavailable"
-                let model_filter = if model_id == crate::worker::UNKNOWN_MODEL_ID {
-                    None
-                } else {
-                    Some(model_id)
-                };
-                let total = self.worker_registry.get_workers_filtered(
-                    model_filter,
-                    Some(WorkerType::Regular),
-                    Some(ConnectionMode::Http),
-                    None,
-                    false,
-                );
+                let total = self
+                    .worker_registry
+                    .get_routing_pool(model_id, RoutingPool::HttpRegular);
                 // `total` is exactly the pool selection drew from, wildcard
                 // model included — classifying from it rather than from the
                 // model index is what makes the shed fire for a model-less
@@ -814,18 +810,9 @@ impl Router {
         // workers. Pre-filter DP-aware workers out of the candidate pool so
         // the policy can pick a non-DP worker when one exists; only fall back
         // to model_not_found / 400 when every candidate is DP-aware.
-        let model_filter = if model_id == crate::worker::UNKNOWN_MODEL_ID {
-            None
-        } else {
-            Some(model_id)
-        };
-        let all_workers = self.worker_registry.get_workers_filtered(
-            model_filter,
-            Some(WorkerType::Regular),
-            Some(ConnectionMode::Http),
-            None,
-            false,
-        );
+        let all_workers = self
+            .worker_registry
+            .get_routing_pool(model_id, RoutingPool::HttpRegular);
         if all_workers.is_empty() {
             let resp = error::model_not_found(model_id);
             record_pre_send_error(&resp);
@@ -844,11 +831,18 @@ impl Router {
             record_pre_send_error(&resp);
             return resp;
         }
-        let available: Vec<Arc<dyn Worker>> = non_dp_workers
-            .iter()
-            .filter(|w| w.is_available())
-            .cloned()
-            .collect();
+        let policy = self.policy_registry.get_policy_or_default(model_id);
+        let filtered;
+        let available: &[Arc<dyn Worker>] = if policy_filters_unavailable_workers(policy.as_ref()) {
+            &non_dp_workers
+        } else {
+            filtered = non_dp_workers
+                .iter()
+                .filter(|worker| worker.is_available())
+                .cloned()
+                .collect::<Vec<_>>();
+            &filtered
+        };
         if available.is_empty() {
             let resp =
                 overload::shed_if_all_overloaded(&non_dp_workers, model_id).unwrap_or_else(|| {
@@ -861,11 +855,10 @@ impl Router {
             return resp;
         }
 
-        let policy = self.policy_registry.get_policy_or_default(model_id);
         let hash_ring = self.worker_registry.get_hash_ring(model_id);
         let idx = match self.policy_registry.select_worker(
             &policy,
-            &available,
+            available,
             &SelectWorkerInfo {
                 request_text: text.as_deref(),
                 tokens: hinted_tokens.as_deref(),
@@ -878,10 +871,18 @@ impl Router {
         ) {
             Some(i) => i,
             None => {
-                let resp = error::service_unavailable(
-                    "no_available_workers",
-                    "Policy returned no eligible worker",
-                );
+                // Self-filtering policies see the unfiltered pool, so "all
+                // workers overloaded" surfaces here as a policy miss instead
+                // of an empty pre-filter above. Classify the shed on this arm
+                // too, or the 503 loses Retry-After, retryability marking,
+                // and the overload-shed metric.
+                let resp = overload::shed_if_all_overloaded(&non_dp_workers, model_id)
+                    .unwrap_or_else(|| {
+                        error::service_unavailable(
+                            "no_available_workers",
+                            "Policy returned no eligible worker",
+                        )
+                    });
                 record_pre_send_error(&resp);
                 return resp;
             }
@@ -1645,14 +1646,11 @@ impl Router {
     /// Gather this router's per-request state for the shared decision matrix
     /// in [`crate::routers::common::body_policy`].
     fn request_body_path(&self, headers: &HeaderMap, wasm_request_hooks: bool) -> BodyPath {
-        let candidates = self.worker_registry.get_workers_filtered(
-            None,
-            Some(WorkerType::Regular),
-            Some(ConnectionMode::Http),
-            None,
-            false,
-        );
+        let candidates = self
+            .worker_registry
+            .get_routing_pool(crate::worker::UNKNOWN_MODEL_ID, RoutingPool::HttpRegular);
         decide_body_path(&BodyPathInputs {
+            routing_key_override: self.policy_registry.routing_key_override_enabled(),
             policy_needs_text: self
                 .policy_registry
                 .any_policy_needs_request_text(Some(headers)),
@@ -1691,8 +1689,8 @@ impl Router {
         let model_id = crate::worker::UNKNOWN_MODEL_ID;
         // Buffered-path parity: a valid tokens hint is exactly what selection
         // would have received there (text is never extracted alongside it).
-        // Streamed requests have no readable body, hence no rid key; the
-        // sticky override keys them by the header alone.
+        // Streamed requests have no readable body, hence no rid key;
+        // routing-key override is excluded by the body-path gate above.
         let hinted_tokens = header_utils::parse_routing_tokens_hint(Some(req.headers()));
         let Some(worker) = self.select_worker_for_model(
             model_id,
@@ -2170,7 +2168,7 @@ mod tests {
         routers::common::{
             body_policy::{
                 REASON_NO_CONTENT_LENGTH, REASON_POLICY_NEEDS_TEXT, REASON_RETRYABLE,
-                REASON_RETRY_FORFEITED, REASON_WASM_REQUEST_HOOK,
+                REASON_RETRY_FORFEITED, REASON_ROUTING_KEY_OVERRIDE, REASON_WASM_REQUEST_HOOK,
             },
             request_lease::test_probe::{spawn_release_gated_stub, DropProbeRequest},
         },
@@ -2316,6 +2314,34 @@ mod tests {
     }
 
     #[test]
+    fn select_first_worker_skips_non_http_transports() {
+        let router = create_test_regular_router();
+        // A healthy gRPC-pipeline worker must never receive the plain HTTP
+        // GET that proxy_get_request sends to the selected URL.
+        let grpc = BasicWorkerBuilder::new("grpc://grpc-worker:9000")
+            .worker_type(WorkerType::Regular)
+            .connection_mode(ConnectionMode::Grpc)
+            .health_config(no_health_check())
+            .build();
+        router.worker_registry.register_or_replace(Arc::new(grpc));
+
+        let url = router.select_first_worker().unwrap();
+        assert!(
+            url.starts_with("http://worker"),
+            "picked a non-HTTP transport: {url}"
+        );
+
+        // With every HTTP worker unhealthy the proxy has no eligible target,
+        // even though the gRPC worker is still healthy.
+        for worker in router.worker_registry.get_all() {
+            if *worker.connection_mode() == ConnectionMode::Http {
+                worker.set_status(openai_protocol::worker::WorkerStatus::NotReady);
+            }
+        }
+        assert!(router.select_first_worker().is_err());
+    }
+
+    #[test]
     fn test_select_first_worker_with_unhealthy_worker() {
         let router = create_test_unhealthy_router();
         let result = router.select_first_worker();
@@ -2325,6 +2351,23 @@ mod tests {
 
         let worker = router.worker_registry.get_by_url(&url).unwrap();
         assert!(worker.is_healthy());
+    }
+
+    #[test]
+    fn model_less_selection_uses_live_availability_from_shared_pool() {
+        let router = create_test_unhealthy_router();
+
+        let selected = router
+            .select_worker_for_model(crate::worker::UNKNOWN_MODEL_ID, None, None, None, None)
+            .unwrap();
+        assert!(selected.is_available());
+
+        for worker in router.worker_registry.get_all() {
+            worker.set_status(openai_protocol::worker::WorkerStatus::NotReady);
+        }
+        assert!(router
+            .select_worker_for_model(crate::worker::UNKNOWN_MODEL_ID, None, None, None, None)
+            .is_none());
     }
 
     fn rerank_request() -> RerankRequest {
@@ -2996,61 +3039,35 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn key_hint_streams_under_cache_aware_only_with_override() {
-        // Without the sticky override nothing consumes the key content-blind.
-        let router = streaming_router(
+    #[test]
+    fn routing_key_override_always_decides_buffer() {
+        let cache_aware = streaming_router_with_key_override(
             cache_aware_policy(),
             1024 * 1024,
             vec![plain_worker("http://worker1:8080")],
         );
-        let req = with_header(
-            streamed_request(&[b"{\"text\":\"hello\"}"]),
-            "x-smg-routing-key",
-            "media-1",
-        );
-        assert!(router
-            .route_streaming_request(req, "/generate", false)
-            .await
-            .is_err());
 
-        let (url_a, _cap_a) = spawn_capture_stub("application/json", "{}").await;
-        let (url_b, _cap_b) = spawn_capture_stub("application/json", "{}").await;
-        let router = streaming_router_with_key_override(
-            cache_aware_policy(),
+        let no_hint = headers_with_content_length(Some("64"));
+        let mut key_hint = no_hint.clone();
+        key_hint.insert("x-smg-routing-key", "request-unique-key".parse().unwrap());
+        let mut tokens_hint = no_hint.clone();
+        tokens_hint.insert("x-smg-routing-tokens", "1,2,3".parse().unwrap());
+        for headers in [&no_hint, &key_hint, &tokens_hint] {
+            assert_eq!(
+                cache_aware.request_body_path(headers, false),
+                BodyPath::Buffer(REASON_ROUTING_KEY_OVERRIDE)
+            );
+        }
+
+        let text_free = streaming_router_with_key_override(
+            least_load_policy(),
             1024 * 1024,
-            vec![plain_worker(&url_a), plain_worker(&url_b)],
+            vec![plain_worker("http://worker1:8080")],
         );
-        let first = routed_worker_id(
-            &router,
-            with_header(
-                streamed_request(&[b"{\"text\":\"hello\"}"]),
-                "x-smg-routing-key",
-                "media-1",
-            ),
-        )
-        .await;
-        let second = routed_worker_id(
-            &router,
-            with_header(
-                streamed_request(&[b"{\"text\":\"other\"}"]),
-                "x-smg-routing-key",
-                "media-1",
-            ),
-        )
-        .await;
-        assert_eq!(first, second, "keyed requests must stick to one worker");
-
-        // Over-cap keys are ignored by the same extractor selection uses.
-        let req = with_header(
-            streamed_request(&[b"{\"text\":\"hello\"}"]),
-            "x-smg-routing-key",
-            &"k".repeat(129),
+        assert_eq!(
+            text_free.request_body_path(&no_hint, false),
+            BodyPath::Buffer(REASON_ROUTING_KEY_OVERRIDE)
         );
-        assert!(router
-            .route_streaming_request(req, "/generate", false)
-            .await
-            .is_err());
     }
 
     /// With retries disabled the parsed request must be freed at dispatch:

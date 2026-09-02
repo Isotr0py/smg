@@ -147,6 +147,10 @@ pub struct RouterConfig {
     /// to `SMG_MM_SHM_MIN_BYTES`, then 64 KiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multimodal_shm_min_bytes: Option<usize>,
+    /// Per-request image-count limit applied to every model, replacing each
+    /// spec's built-in limit; beats `SMG_IMAGE_MAX_COUNT`. Unset keeps spec limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mm_per_request_image_limit: Option<usize>,
     pub dp_aware: bool,
     #[serde(default)]
     pub dp_minimum_tokens_scheduler: bool,
@@ -517,8 +521,8 @@ pub enum ManualAssignmentMode {
 /// `_t<n>` and per-retry `_r<n>` suffixes stripped, so every turn of a
 /// conversation shares one key) wins over the routing-key headers; the first
 /// configured header carrying a valid value is the fallback when no rid is
-/// present. Raw-streamed requests have no readable body and therefore derive
-/// keys from the headers only.
+/// present. An enabled override keeps automatic body forwarding buffered so
+/// body `rid` precedence is preserved.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutingKeyOverrideConfig {
     /// When false, policies are used unchanged.
@@ -862,6 +866,10 @@ pub struct DiscoveryConfig {
     /// Absent on a pod = single worker at `port`.
     #[serde(default = "default_worker_ports_annotation")]
     pub worker_ports_annotation: String,
+    #[serde(default = "default_kv_connector_annotation")]
+    pub kv_connector_annotation: String,
+    #[serde(default = "default_kv_engine_id_annotation")]
+    pub kv_engine_id_annotation: String,
     /// Router node discovery for HA (Kubernetes label selector)
     #[serde(default)]
     pub router_selector: HashMap<String, String>,
@@ -881,6 +889,14 @@ fn default_worker_ports_annotation() -> String {
     "smg.ai/worker-ports".to_string()
 }
 
+fn default_kv_connector_annotation() -> String {
+    "smg.ai/kv-connector".to_string()
+}
+
+fn default_kv_engine_id_annotation() -> String {
+    "smg.ai/kv-engine-id".to_string()
+}
+
 impl Default for DiscoveryConfig {
     fn default() -> Self {
         Self {
@@ -894,6 +910,8 @@ impl Default for DiscoveryConfig {
             decode_selector: HashMap::new(),
             bootstrap_port_annotation: "sglang.ai/bootstrap-port".to_string(),
             worker_ports_annotation: default_worker_ports_annotation(),
+            kv_connector_annotation: default_kv_connector_annotation(),
+            kv_engine_id_annotation: default_kv_engine_id_annotation(),
             router_selector: HashMap::new(),
             router_mesh_port_annotation: default_router_mesh_port_annotation(),
             model_id_source: None,
@@ -952,6 +970,19 @@ pub struct HealthCheckConfig {
 
 fn default_drain_settle_secs() -> u64 {
     5
+}
+
+/// Resolve `--worker-auto-recovery`'s conditional default: an explicit
+/// setting always wins; otherwise it follows service discovery.
+///
+/// The recovery mechanism is removal — a terminally failed worker is dropped
+/// from the registry so discovery re-registers and re-probes it once its
+/// engine returns. With discovery on, that loop completes and recovery is
+/// pure upside; with discovery off, nothing re-adds the worker, so removal
+/// would silently and permanently shrink a static fleet and must stay
+/// opt-in.
+pub fn resolve_worker_auto_recovery(explicit: Option<bool>, service_discovery: bool) -> bool {
+    explicit.unwrap_or(service_discovery)
 }
 
 impl Default for HealthCheckConfig {
@@ -1067,6 +1098,7 @@ impl Default for RouterConfig {
             engine_metrics: false,
             multimodal_tensor_transport: None,
             multimodal_shm_min_bytes: None,
+            mm_per_request_image_limit: None,
             dp_aware: false,
             dp_minimum_tokens_scheduler: false,
             api_key: None,
@@ -1830,6 +1862,8 @@ mod tests {
         assert!(config.prefill_selector.is_empty());
         assert!(config.decode_selector.is_empty());
         assert_eq!(config.bootstrap_port_annotation, "sglang.ai/bootstrap-port");
+        assert_eq!(config.kv_connector_annotation, "smg.ai/kv-connector");
+        assert_eq!(config.kv_engine_id_annotation, "smg.ai/kv-engine-id");
     }
 
     #[test]
@@ -1849,6 +1883,8 @@ mod tests {
             decode_selector: selector.clone(),
             bootstrap_port_annotation: "custom.io/port".to_string(),
             worker_ports_annotation: "smg.ai/worker-ports".to_string(),
+            kv_connector_annotation: "custom.io/kv-connector".to_string(),
+            kv_engine_id_annotation: "custom.io/kv-engine-id".to_string(),
             router_selector: HashMap::new(),
             router_mesh_port_annotation: "sglang.ai/mesh-port".to_string(),
             model_id_source: None,
@@ -2130,6 +2166,8 @@ mod tests {
                 decode_selector: selectors,
                 bootstrap_port_annotation: "mycompany.io/bootstrap".to_string(),
                 worker_ports_annotation: "smg.ai/worker-ports".to_string(),
+                kv_connector_annotation: "smg.ai/kv-connector".to_string(),
+                kv_engine_id_annotation: "smg.ai/kv-engine-id".to_string(),
                 router_selector: HashMap::new(),
                 router_mesh_port_annotation: "sglang.ai/mesh-port".to_string(),
                 model_id_source: None,

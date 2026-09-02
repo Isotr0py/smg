@@ -4,7 +4,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # Internal workspace crates
-openai-protocol = { version = "1.12.0", path = "crates/protocols" }
+openai-protocol = { version = "1.13.0", path = "crates/protocols" }
 smg-mm-rdma = { version = "0.1.1", path = "crates/mm_rdma" }
 reasoning-parser = { version = "1.7.0", path = "crates/reasoning_parser" }
 tool-parser = { version = "1.7.0", path = "crates/tool_parser" }
@@ -14,10 +14,10 @@ smg-auth = { version = "1.2.3", path = "crates/auth" }
 smg-mcp = { version = "2.3.3", path = "crates/mcp" }
 kv-index = { version = "1.4.0", path = "crates/kv_index" }
 smg-data-connector = { version = "2.3.4", path = "crates/data_connector", package = "data-connector" }
-llm-multimodal = { version = "1.10.0", path = "crates/multimodal" }
+llm-multimodal = { version = "1.11.0", path = "crates/multimodal" }
 smg-wasm = { version = "1.1.4", path = "crates/wasm", package = "smg-wasm" }
 smg-mesh = { version = "1.4.3", path = "crates/mesh", package = "smg-mesh" }
-smg-grpc-client = { version = "1.11.0", path = "crates/grpc_client" }
+smg-grpc-client = { version = "1.12.0", path = "crates/grpc_client" }
 engine-zmq-client = { version = "0.1.0", path = "crates/engine_zmq_client" }
 
 # Shared dependencies
@@ -66,7 +66,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
 webpki-roots = "1.0"
 multer = "3"
-str0m = { version = "0.21", default-features = false, features = ["openssl"] }
+str0m = { version = "0.23", default-features = false, features = ["openssl"] }
 scopeguard = "1.2"
 bitflags = "2.13.0"
 schemars = "1.2"
@@ -139,6 +139,16 @@ opt-level = "z"     # Optimize for size
 lto = "fat"         # Full LTO for smaller binaries
 codegen-units = 1   # Better optimization, slower compile
 strip = false       # Keep symbols so production CPU profiles/flamegraphs are readable (#1575)
+
+# Optimize hot dependencies in the tiktoken encode path.
+[profile.release.package.tiktoken-rs]
+opt-level = 2
+
+[profile.release.package.fancy-regex]
+opt-level = 2
+
+[profile.release.package.regex-automata]
+opt-level = 2
 
 [profile.ci]
 inherits = "release"

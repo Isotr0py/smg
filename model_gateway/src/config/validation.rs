@@ -732,6 +732,14 @@ impl ConfigValidator {
             });
         }
 
+        if config.mm_per_request_image_limit == Some(0) {
+            return Err(ConfigError::InvalidValue {
+                field: "mm_per_request_image_limit".to_string(),
+                value: "0".to_string(),
+                reason: "Must be at least 1".to_string(),
+            });
+        }
+
         // A zero-capacity job channel panics at construction and a
         // zero-permit dispatcher never dequeues; reject both here so a
         // config-file value fails as early as the CLI parsers do.
@@ -847,6 +855,27 @@ impl ConfigValidator {
                 value: discovery.check_interval_secs.to_string(),
                 reason: "Must be > 0".to_string(),
             });
+        }
+
+        for (field, value) in [
+            (
+                "discovery.kv_connector_annotation",
+                &discovery.kv_connector_annotation,
+            ),
+            (
+                "discovery.kv_engine_id_annotation",
+                &discovery.kv_engine_id_annotation,
+            ),
+        ] {
+            let trimmed = value.trim();
+            if trimmed.is_empty() || trimmed != value {
+                return Err(ConfigError::InvalidValue {
+                    field: field.to_string(),
+                    value: value.clone(),
+                    reason: "Annotation name must not be empty or padded with whitespace"
+                        .to_string(),
+                });
+            }
         }
 
         match mode {
@@ -1193,6 +1222,24 @@ mod tests {
     }
 
     #[test]
+    fn zero_mm_per_request_image_limit_is_rejected() {
+        let config = RouterConfig {
+            mm_per_request_image_limit: Some(0),
+            ..Default::default()
+        };
+        assert!(matches!(
+            ConfigValidator::validate(&config),
+            Err(ConfigError::InvalidValue { ref field, .. }) if field == "mm_per_request_image_limit"
+        ));
+
+        let config = RouterConfig {
+            mm_per_request_image_limit: Some(128),
+            ..Default::default()
+        };
+        assert!(ConfigValidator::validate(&config).is_ok());
+    }
+
+    #[test]
     fn mesh_server_name_with_colon_is_rejected() {
         assert!(matches!(
             validate_mesh_server_name("node:a"),
@@ -1511,6 +1558,36 @@ mod tests {
 
         // Should pass validation since service discovery is enabled
         assert!(ConfigValidator::validate(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_invalid_kv_annotation_names() {
+        for (field, kv_connector_annotation, kv_engine_id_annotation) in [
+            (
+                "discovery.kv_connector_annotation",
+                " ",
+                "smg.ai/kv-engine-id",
+            ),
+            (
+                "discovery.kv_engine_id_annotation",
+                "smg.ai/kv-connector",
+                " smg.ai/kv-engine-id",
+            ),
+        ] {
+            let mut config = regular_mode_config();
+            config.discovery = Some(DiscoveryConfig {
+                enabled: true,
+                selector: [("app".to_string(), "worker".to_string())].into(),
+                kv_connector_annotation: kv_connector_annotation.to_string(),
+                kv_engine_id_annotation: kv_engine_id_annotation.to_string(),
+                ..Default::default()
+            });
+
+            assert!(matches!(
+                ConfigValidator::validate(&config),
+                Err(ConfigError::InvalidValue { field: ref actual, .. }) if actual == field
+            ));
+        }
     }
 
     #[test]

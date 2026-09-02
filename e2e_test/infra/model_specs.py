@@ -80,10 +80,10 @@ MODEL_SPECS: dict[str, dict] = {
         "vllm_args": [] if _is_nightly else ["--enforce-eager"],
         "trtllm_extra_config": {"kv_cache_config": {"free_gpu_memory_fraction": 0.8}},
     },
-    # Qwen3.6-27B — thinking model with XML tool calls (qwen3_5 arch). Staged for
-    # the nightly BFCL A/B (scripts/bfcl); tp=2 fits the 27B on two GPUs.
-    "Qwen/Qwen3.6-27B": {
-        "model": _resolve_model_path("Qwen/Qwen3.6-27B"),
+    # Qwen3.8-27B — thinking VLM with XML tool calls (reuses the qwen3_5 arch).
+    # Staged for the nightly BFCL A/B (scripts/bfcl); tp=2 fits the 27B on two GPUs.
+    "Qwen/Qwen3.8-27B": {
+        "model": _resolve_model_path("Qwen/Qwen3.8-27B"),
         "tp": 2,
         "features": [
             "chat",
@@ -161,6 +161,14 @@ MODEL_SPECS: dict[str, dict] = {
         "model": _resolve_model_path("Qwen/Qwen3-VL-8B-Instruct"),
         "tp": 1,
         "features": ["chat", "streaming", "multimodal"],
+    },
+    # Standard-RoPE vision model for the PD multimodal KV-isolation test:
+    # M-RoPE models (Qwen-VL) cannot decode on the tensor-stripped PD leg.
+    "microsoft/Phi-3.5-vision-instruct": {
+        "model": _resolve_model_path("microsoft/Phi-3.5-vision-instruct"),
+        "tp": 1,
+        "features": ["chat", "streaming", "multimodal"],
+        "vllm_args": ["--trust-remote-code"],
     },
     # TokenSpeed EPD multimodal model. Qwen3.5-9B is a vision-language model
     # (hybrid Gated DeltaNet + sparse MoE); BF16 ~18GB fits one 80GB H100 at
