@@ -422,7 +422,7 @@ async fn preprocess_modality(
                 .ok_or_else(|| {
                     anyhow::anyhow!("No vision processor found for model: {model_id_owned}")
                 })?;
-            let video_pp_config = with_video_sample_fps(pp_config.clone(), video);
+            let video_pp_config = with_video_sample_info(pp_config.clone(), video);
 
             if !video.frames().is_empty() {
                 return processor
@@ -472,10 +472,27 @@ async fn preprocess_modality(
     .map_err(|e| anyhow::anyhow!("Preprocessing task panicked: {e}"))?
 }
 
-fn with_video_sample_fps(mut config: PreProcessorConfig, video: &VideoClip) -> PreProcessorConfig {
+/// Inject the connector's sampling provenance into the video preprocessor
+/// config: the effective `fps` (consumed by every video processor for
+/// `second_per_grid`), plus the exact `frames_indices` and `source_fps` when
+/// the decode backend knows them (consumed by models whose prompt carries
+/// per-frame timestamps, e.g. MiniMax-M3).
+fn with_video_sample_info(mut config: PreProcessorConfig, video: &VideoClip) -> PreProcessorConfig {
+    let info = &video.sample_info;
     config
         .extra
-        .insert("fps".to_string(), serde_json::json!(video.sample_fps()));
+        .insert("fps".to_string(), serde_json::json!(info.sample_fps));
+    if let Some(source_fps) = info.source_fps {
+        config
+            .extra
+            .insert("source_fps".to_string(), serde_json::json!(source_fps));
+    }
+    if let Some(frame_indices) = &info.frame_indices {
+        config.extra.insert(
+            "frames_indices".to_string(),
+            serde_json::json!(frame_indices),
+        );
+    }
     config
 }
 
@@ -752,9 +769,37 @@ mod tests {
             VideoSampleInfo::from_sample_fps(0.8),
         );
 
-        let config = with_video_sample_fps(PreProcessorConfig::default(), &video);
+        let config = with_video_sample_info(PreProcessorConfig::default(), &video);
 
         assert!((config.get_extra::<f32>("fps").unwrap() - 0.8).abs() < 1e-6);
+        // No indices/fps provenance on this clip -> the keys stay absent.
+        assert!(config.get_extra::<f32>("source_fps").is_none());
+        assert!(config.get_extra::<Vec<u32>>("frames_indices").is_none());
+    }
+
+    #[test]
+    fn video_sample_info_provenance_is_injected_when_present() {
+        let info = VideoSampleInfo {
+            source_fps: Some(30.0),
+            frame_indices: Some(vec![0, 30, 60]),
+            ..VideoSampleInfo::from_sample_fps(1.0)
+        };
+        let video = VideoClip::new_with_sample_info(
+            Vec::new(),
+            Bytes::new(),
+            VideoSource::InlineBytes,
+            "video-hash".to_string(),
+            info,
+        );
+
+        let config = with_video_sample_info(PreProcessorConfig::default(), &video);
+
+        assert!((config.get_extra::<f32>("fps").unwrap() - 1.0).abs() < 1e-6);
+        assert!((config.get_extra::<f32>("source_fps").unwrap() - 30.0).abs() < 1e-6);
+        assert_eq!(
+            config.get_extra::<Vec<u32>>("frames_indices").unwrap(),
+            vec![0, 30, 60]
+        );
     }
 
     #[test]

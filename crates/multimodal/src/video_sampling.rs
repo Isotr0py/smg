@@ -38,6 +38,10 @@ pub enum VideoSamplingStrategy {
     /// `int(duration * fps)` frames, dedup, and even-count padding.
     /// `max_duration <= 0` means uncapped (the HF default).
     Glm5Next { max_duration: f64 },
+    /// MiniMax-M3 parity (vLLM `MiniMaxM3VideoBackend`): ceil-interval walk
+    /// keeping one frame every `1 / sample_fps` seconds of source time, with
+    /// no min/max frame clamps. M3 defaults to `sample_fps = 1`.
+    MiniMaxM3,
 }
 
 /// The frames to decode, as indices into the source video.
@@ -68,6 +72,9 @@ impl VideoSamplingStrategy {
                 max_frames,
                 sample_fps,
                 max_duration,
+            ),
+            Self::MiniMaxM3 => crate::registry::minimax_m3_frame_indices(
+                source, min_frames, max_frames, sample_fps,
             ),
         };
         FrameSamplingPlan { indices }

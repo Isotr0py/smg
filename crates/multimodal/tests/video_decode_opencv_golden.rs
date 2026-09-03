@@ -60,6 +60,7 @@ async fn opencv_decodes_exactly_the_planned_frame_indices() {
         VideoSamplingStrategy::Qwen3Vl,
         VideoSamplingStrategy::Uniform,
         VideoSamplingStrategy::Glm5Next { max_duration: 0.0 },
+        VideoSamplingStrategy::MiniMaxM3,
     ] {
         let cfg = VideoFetchConfig {
             strategy,

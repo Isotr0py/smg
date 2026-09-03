@@ -4,8 +4,11 @@ use serde_json::{json, Value};
 
 use crate::{
     encoder_inputs::{ModelSpecificValue, PreprocessedEncoderInputs},
+    media::VideoFetchConfig,
     registry::{ModelMetadata, ModelProcessorSpec, ModelRegistryError, RegistryResult},
     types::{FieldLayout, Modality, PlaceholderRange, PromptReplacement, TokenId},
+    video_sampling::{VideoSamplingStrategy, VideoSourceMeta},
+    vision::PreProcessorConfig,
 };
 
 /// Maximum images accepted in one request (MiniMax-M3 spec 1.3.6).
@@ -13,6 +16,57 @@ const MAX_IMAGES_PER_REQUEST: usize = 200;
 
 /// Maximum videos accepted in one request (MiniMax-M3 spec 1.3.6).
 const MAX_VIDEOS_PER_REQUEST: usize = 20;
+
+/// Mirrors vLLM's `MiniMaxM3VideoBackend.compute_frames_index_to_sample`
+/// (models/minimax_m3/common/mm_preprocess.py): a ceil-interval walk keeping
+/// one frame every `1 / sample_fps` seconds of source time. There is no
+/// min/max frame clamp; invalid or unknown rates degrade to the first frame,
+/// matching the reference's guard (`[0] if total_frames > 0 else []`).
+/// `min_frames`/`max_frames` are accepted for signature uniformity but unused.
+///
+/// Non-uniform by design: consumers that need per-frame timing must read the
+/// sampled indices back from `VideoSampleInfo.frame_indices`.
+pub(crate) fn minimax_m3_frame_indices(
+    source: &VideoSourceMeta,
+    _min_frames: usize,
+    _max_frames: usize,
+    sample_fps: f32,
+) -> Vec<usize> {
+    let total_frames = source.total_frames;
+    let video_fps = source.original_fps;
+    let fps = f64::from(sample_fps);
+    if total_frames == 0 {
+        return Vec::new();
+    }
+    if !(video_fps.is_finite() && video_fps > 0.0 && fps.is_finite() && fps > 0.0) {
+        return vec![0];
+    }
+
+    let read_time_interval = 1.0 / fps;
+    // The reference subtracts an epsilon so a frame landing exactly on the
+    // boundary does not get picked twice.
+    let eps = 1e-4;
+    let mut indices = Vec::new();
+    let mut prev_kept_ts = f64::NEG_INFINITY;
+    loop {
+        let target_frame = match indices.last() {
+            None => 0,
+            Some(&last) => {
+                let target_ts = prev_kept_ts + read_time_interval - eps;
+                ((target_ts * video_fps).ceil() as usize).max(last + 1)
+            }
+        };
+        if target_frame >= total_frames {
+            break;
+        }
+        indices.push(target_frame);
+        prev_kept_ts = target_frame as f64 / video_fps;
+    }
+    if indices.is_empty() {
+        indices.push(0);
+    }
+    indices
+}
 
 /// MiniMax-M3 vision spec.
 ///
@@ -131,47 +185,79 @@ impl MiniMaxM3VisionSpec {
     ///     [start] + [video_token] * M + [end]
     /// ```
     ///
-    /// vLLM additionally prefixes each frame with a `]<]X.X seconds[>[` marker
-    /// when the sampled frame indices and fps are known, and documents the
-    /// no-metadata path as an aligned fallback. SMG does not carry that
-    /// per-frame metadata, so the timestamp markers are omitted and the frame
-    /// blocks alone are emitted.
+    /// When the decode backend carried the sampled frame indices and source
+    /// fps through (`video_frames_indices` / `video_source_fps`, currently the
+    /// OpenCV path), each frame is additionally prefixed with a
+    /// `]<]X.X seconds[>[` marker — `frames_indices[min(i * tps, len - 1)] /
+    /// source_fps`, mirroring vLLM exactly. Without them the frame blocks
+    /// alone are emitted, which vLLM documents as the aligned fallback.
     ///
     /// Returns `None` when the layout cannot apply (unknown or single frame, or
     /// a token count that does not divide evenly), leaving the caller on the
     /// single-block path.
     fn per_frame_video_tokens(
         metadata: &ModelMetadata,
+        preprocessed: &PreprocessedEncoderInputs,
         pad_token_id: TokenId,
         num_tokens: usize,
         grid_t: usize,
-    ) -> RegistryResult<Option<Vec<TokenId>>> {
+    ) -> RegistryResult<Option<(Vec<TokenId>, Vec<PlaceholderRange>)>> {
         if grid_t <= 1 || num_tokens == 0 || !num_tokens.is_multiple_of(grid_t) {
             return Ok(None);
         }
         let start_id = metadata.token_id(Self::VIDEO_START_TOKEN)?;
         let end_id = metadata.token_id(Self::VIDEO_END_TOKEN)?;
+        let timestamps = Self::video_frame_timestamps(preprocessed);
+        // `img_token_compression_config.temporal_patch_size`, default 2.
+        let temporal_patch_size = metadata
+            .config_u32(&["img_token_compression_config", "temporal_patch_size"])
+            .unwrap_or(2) as usize;
 
         let per_frame = num_tokens / grid_t;
         let mut tokens = Vec::with_capacity(num_tokens + 2 * grid_t);
-        for _ in 0..grid_t {
+        let mut ranges = Vec::with_capacity(grid_t);
+        for frame_idx in 0..grid_t {
+            if let Some((indices, source_fps)) = &timestamps {
+                let sampled = indices[(frame_idx * temporal_patch_size).min(indices.len() - 1)];
+                let seconds = sampled as f64 / source_fps;
+                tokens.extend(Self::encode(
+                    metadata,
+                    &format!("]<]{seconds:.1} seconds[>["),
+                )?);
+            }
             tokens.push(start_id);
+            ranges.push(PlaceholderRange {
+                offset: tokens.len(),
+                length: per_frame,
+            });
             tokens.extend(std::iter::repeat_n(pad_token_id, per_frame));
             tokens.push(end_id);
         }
-        Ok(Some(tokens))
+        Ok(Some((tokens, ranges)))
     }
 
-    /// Feature ranges for a per-frame video body: the pad run inside each
-    /// frame's markers.
-    fn per_frame_feature_ranges(grid_t: usize, per_frame: usize) -> Vec<PlaceholderRange> {
-        (0..grid_t)
-            .map(|frame| PlaceholderRange {
-                // Each frame contributes [start] + per_frame pads + [end].
-                offset: frame * (per_frame + 2) + 1,
-                length: per_frame,
-            })
-            .collect()
+    /// The sampled source-frame indices and source fps carried through the
+    /// video processor, when available. Both must be present and sane.
+    fn video_frame_timestamps(preprocessed: &PreprocessedEncoderInputs) -> Option<(Vec<i64>, f64)> {
+        let indices = match preprocessed.model_specific.get("video_frames_indices") {
+            Some(ModelSpecificValue::IntTensor { data, .. }) if !data.is_empty() => data,
+            _ => return None,
+        };
+        let source_fps = match preprocessed.model_specific.get("video_source_fps") {
+            Some(ModelSpecificValue::Tensor { data, .. }) if !data.is_empty() => f64::from(data[0]),
+            _ => return None,
+        };
+        (source_fps.is_finite() && source_fps > 0.0).then(|| (indices.clone(), source_fps))
+    }
+
+    fn encode(metadata: &ModelMetadata, text: &str) -> RegistryResult<Vec<TokenId>> {
+        let ids = metadata.tokenizer.encode_text(text).ok_or_else(|| {
+            ModelRegistryError::TextEncodingFailed {
+                spec: "minimax_m3",
+                text: text.to_string(),
+            }
+        })?;
+        Ok(ids.into_iter().map(|id| id as TokenId).collect())
     }
 
     fn replacements_for(
@@ -268,6 +354,28 @@ impl ModelProcessorSpec for MiniMaxM3VisionSpec {
         Ok(json!({}))
     }
 
+    fn video_fetch_config(
+        &self,
+        video_preprocessor_config: Option<&PreProcessorConfig>,
+    ) -> VideoFetchConfig {
+        VideoFetchConfig {
+            // M3's ceil-interval sampling has no frame-count clamps; the
+            // min/max fields only feed the connector's config validation and
+            // the ffmpeg fallback's generic bounds.
+            min_frames: 1,
+            // The vendored MiniMaxM3VLVideoProcessor default.
+            max_frames: video_preprocessor_config
+                .and_then(|config| config.get_extra::<usize>("max_frames"))
+                .unwrap_or(768),
+            // M3 samples at 1 fps by default (unlike the Qwen family's 2).
+            sample_fps: video_preprocessor_config
+                .and_then(|config| config.get_extra::<f32>("fps"))
+                .unwrap_or(1.0),
+            strategy: VideoSamplingStrategy::MiniMaxM3,
+            max_long_side_pixel: None,
+        }
+    }
+
     fn prompt_replacements(
         &self,
         metadata: &ModelMetadata,
@@ -302,21 +410,23 @@ impl ModelProcessorSpec for MiniMaxM3VisionSpec {
                     .iter()
                     .map(|&num_tokens| {
                         let per_frame = grid_t.and_then(|grid_t| {
-                            Self::per_frame_video_tokens(metadata, pad_token_id, num_tokens, grid_t)
-                                .transpose()
-                                .map(|tokens| tokens.map(|tokens| (tokens, grid_t)))
+                            Self::per_frame_video_tokens(
+                                metadata,
+                                preprocessed,
+                                pad_token_id,
+                                num_tokens,
+                                grid_t,
+                            )
+                            .transpose()
                         });
 
                         match per_frame {
-                            Some(Ok((tokens, grid_t))) => Ok(PromptReplacement::sequence(
+                            Some(Ok((tokens, ranges))) => Ok(PromptReplacement::sequence(
                                 Modality::Video,
                                 &placeholder_token,
                                 tokens,
                             )
-                            .with_feature_ranges(Self::per_frame_feature_ranges(
-                                grid_t,
-                                num_tokens / grid_t,
-                            ))),
+                            .with_feature_ranges(ranges)),
                             Some(Err(err)) => Err(err),
                             None => Self::wrapped_replacement(
                                 metadata,
@@ -401,8 +511,22 @@ mod tests {
         }
 
         fn encode_text(&self, text: &str) -> Option<Vec<u32>> {
-            self.token_to_id(text).map(|id| vec![id])
+            // Known markers map to their declared ids; anything else (the
+            // timestamp text) byte-encodes at a high base so tests can
+            // reconstruct it.
+            self.token_to_id(text)
+                .map(|id| vec![id])
+                .or_else(|| Some(text.bytes().map(|b| 300_000 + u32::from(b)).collect()))
         }
+    }
+
+    /// Decode byte-encoded (base 300_000) text fragments out of a token run.
+    fn encoded_text(tokens: &[TokenId]) -> String {
+        tokens
+            .iter()
+            .filter(|&&t| (300_000..300_256).contains(&(t as u32)))
+            .map(|&t| char::from((t as u32 - 300_000) as u8))
+            .collect()
     }
 
     fn metadata() -> ModelMetadata<'static> {
@@ -651,5 +775,148 @@ mod tests {
 
         assert!(keys.contains(&"image_grid_thw".to_string()));
         assert!(keys.contains(&"video_grid_thw".to_string()));
+    }
+
+    // MiniMaxM3 frame sampling: vLLM MiniMaxM3VideoBackend
+    // (models/minimax_m3/common/mm_preprocess.py) parity. The expected values
+    // below were cross-checked against the reference implementation.
+
+    fn m3_source(total_frames: usize, fps: f64) -> VideoSourceMeta {
+        VideoSourceMeta {
+            total_frames,
+            original_fps: fps,
+            duration_seconds: (fps.is_finite() && fps > 0.0).then_some(total_frames as f64 / fps),
+        }
+    }
+
+    #[test]
+    fn m3_sampling_ceil_interval_walk() {
+        // One frame per second of source time at 30 fps, eps-guarded.
+        let plan = VideoSamplingStrategy::MiniMaxM3.plan(&m3_source(98, 30.0), 1, 768, 1.0);
+        assert_eq!(plan.indices, vec![0, 30, 60, 90]);
+
+        let plan = VideoSamplingStrategy::MiniMaxM3.plan(&m3_source(98, 30.0), 1, 768, 2.0);
+        assert_eq!(plan.indices, vec![0, 15, 30, 45, 60, 75, 90]);
+
+        // Non-integer source fps: ceil keeps the walk on distinct frames.
+        let plan = VideoSamplingStrategy::MiniMaxM3.plan(&m3_source(97, 33.0), 1, 768, 1.0);
+        assert_eq!(plan.indices, vec![0, 33, 66]);
+    }
+
+    #[test]
+    fn m3_sampling_degenerates_to_first_frame() {
+        // Tiny clips and unknown/invalid rates all yield [0], matching the
+        // reference guard (no uniform fallback — the model contract).
+        for source in [
+            m3_source(2, 2.0),
+            m3_source(1, 30.0),
+            m3_source(100, 0.0),
+            m3_source(100, f64::NAN),
+        ] {
+            let plan = VideoSamplingStrategy::MiniMaxM3.plan(&source, 1, 768, 1.0);
+            assert_eq!(plan.indices, vec![0]);
+        }
+        let plan = VideoSamplingStrategy::MiniMaxM3.plan(&m3_source(0, 30.0), 1, 768, 1.0);
+        assert!(plan.indices.is_empty());
+    }
+
+    #[test]
+    fn m3_video_fetch_config_defaults_to_1fps() {
+        let cfg = MiniMaxM3VisionSpec.video_fetch_config(None);
+        assert_eq!(cfg.min_frames, 1);
+        assert_eq!(cfg.max_frames, 768);
+        assert_eq!(cfg.sample_fps, 1.0);
+        assert_eq!(cfg.strategy, VideoSamplingStrategy::MiniMaxM3);
+
+        let pp_config = PreProcessorConfig::from_json(r#"{"fps": 2.0, "max_frames": 256}"#)
+            .expect("video preprocessor config");
+        let cfg = MiniMaxM3VisionSpec.video_fetch_config(Some(&pp_config));
+        assert_eq!(cfg.sample_fps, 2.0);
+        assert_eq!(cfg.max_frames, 256);
+    }
+
+    #[test]
+    fn video_frames_carry_timestamp_markers_when_metadata_present() {
+        let spec = MiniMaxM3VisionSpec;
+        // grid_t = 2, 2 pad tokens per frame; sampled source frames 0 and 30
+        // at 30 fps -> timestamps 0.0s and 1.0s (temporal_patch_size = 2
+        // clamps the second lookup to the last index).
+        let input = preprocessed_video(vec![4], 2)
+            .with_extra(
+                "video_frames_indices",
+                ModelSpecificValue::IntTensor {
+                    data: vec![0, 30],
+                    shape: vec![2],
+                },
+            )
+            .with_extra(
+                "video_source_fps",
+                ModelSpecificValue::Tensor {
+                    data: vec![30.0],
+                    shape: vec![1],
+                },
+            );
+        let replacements = spec
+            .prompt_replacements_for(&metadata(), &input, Modality::Video)
+            .unwrap();
+
+        let tokens = &replacements[0].tokens;
+        // Each frame: "]<]X.X seconds[>[" (17 byte-encoded tokens) + start +
+        // 2 pads + end.
+        let ts_len = 17;
+        let frame_len = ts_len + 1 + 2 + 1;
+        assert_eq!(tokens.len(), 2 * frame_len);
+        assert_eq!(tokens[ts_len], VIDEO_START_ID);
+        assert_eq!(tokens[frame_len + ts_len], VIDEO_START_ID);
+        assert_eq!(encoded_text(&tokens[..ts_len]), "]<]0.0 seconds[>[");
+        assert_eq!(
+            encoded_text(&tokens[frame_len..frame_len + ts_len]),
+            "]<]1.0 seconds[>["
+        );
+
+        let ranges = replacements[0].feature_ranges.as_ref().unwrap();
+        assert_eq!(
+            ranges
+                .iter()
+                .map(|range| (range.offset, range.length))
+                .collect::<Vec<_>>(),
+            vec![(ts_len + 1, 2), (frame_len + ts_len + 1, 2)]
+        );
+    }
+
+    #[test]
+    fn video_frames_omit_timestamps_without_metadata() {
+        // The no-metadata path (e.g. ffmpeg decode) stays vLLM's documented
+        // aligned fallback: frame blocks only.
+        let spec = MiniMaxM3VisionSpec;
+        let replacements = spec
+            .prompt_replacements_for(
+                &metadata(),
+                &preprocessed_video(vec![4], 2),
+                Modality::Video,
+            )
+            .unwrap();
+
+        assert_eq!(
+            replacements[0].tokens,
+            vec![
+                VIDEO_START_ID,
+                VIDEO_ID,
+                VIDEO_ID,
+                VIDEO_END_ID,
+                VIDEO_START_ID,
+                VIDEO_ID,
+                VIDEO_ID,
+                VIDEO_END_ID,
+            ]
+        );
+        let ranges = replacements[0].feature_ranges.as_ref().unwrap();
+        assert_eq!(
+            ranges
+                .iter()
+                .map(|range| (range.offset, range.length))
+                .collect::<Vec<_>>(),
+            vec![(1, 2), (5, 2)]
+        );
     }
 }

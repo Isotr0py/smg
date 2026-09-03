@@ -160,4 +160,31 @@ async fn decode_samples_match_strategy_plans_on_real_video() {
         (clip.sample_info.sample_fps - 6.0 / DURATION_SECONDS as f32).abs() < 1e-3,
         "Glm5Next effective fps is planned count over duration"
     );
+
+    // MiniMaxM3: the ceil-interval walk at 1 fps picks [0, 30, 60, 90] — 4
+    // frames. The count flows through the ffmpeg plan path like the others.
+    let clip = connector
+        .fetch_video(
+            MediaSource::InlineBytes(fixture_bytes()),
+            VideoFetchConfig {
+                min_frames: 1,
+                max_frames: 768,
+                sample_fps: 1.0,
+                strategy: VideoSamplingStrategy::MiniMaxM3,
+                max_long_side_pixel: None,
+            },
+        )
+        .await
+        .expect("decode indexed video with MiniMaxM3 strategy");
+    assert_eq!(
+        clip.materialized_frames()
+            .expect("materialize frames")
+            .len(),
+        4,
+        "MiniMaxM3 must sample exactly 4 frames"
+    );
+    assert!(
+        (clip.sample_info.sample_fps - 4.0 / DURATION_SECONDS as f32).abs() < 1e-3,
+        "MiniMaxM3 effective fps is planned count over duration"
+    );
 }

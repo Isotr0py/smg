@@ -32,6 +32,7 @@ use super::{
     qwen_vl_base::{QwenVLConfig, QwenVLProcessorBase, QwenVideoResizeMode},
 };
 use crate::{
+    encoder_inputs::ModelSpecificValue,
     types::RgbFrameRef,
     vision::{
         preprocessor_config::PreProcessorConfig,
@@ -39,6 +40,39 @@ use crate::{
         transforms::TransformError,
     },
 };
+
+/// Re-emit the connector's sampling provenance (injected into `config.extra`
+/// by the router) as model-specific outputs, so M3's prompt replacement can
+/// render the per-frame `]<]X.X seconds[>[` markers. Both keys are present
+/// only when the decode backend knows the exact sampled indices (the OpenCV
+/// path; the ffmpeg fps-filter path leaves them out).
+fn with_video_sample_metadata(
+    mut result: PreprocessedEncoderInputs,
+    config: &PreProcessorConfig,
+) -> PreprocessedEncoderInputs {
+    let indices = config.get_extra::<Vec<u32>>("frames_indices");
+    let source_fps = config.get_extra::<f32>("source_fps");
+    if let (Some(indices), Some(source_fps)) = (indices, source_fps) {
+        if !indices.is_empty() && source_fps.is_finite() && source_fps > 0.0 {
+            let count = indices.len();
+            result = result.with_extra(
+                "video_frames_indices",
+                ModelSpecificValue::IntTensor {
+                    data: indices.into_iter().map(i64::from).collect(),
+                    shape: vec![count],
+                },
+            );
+            result = result.with_extra(
+                "video_source_fps",
+                ModelSpecificValue::Tensor {
+                    data: vec![source_fps],
+                    shape: vec![1],
+                },
+            );
+        }
+    }
+    result
+}
 
 /// Default patch size.
 pub const DEFAULT_PATCH_SIZE: usize = 14;
@@ -245,9 +279,11 @@ impl VisionPreProcessor for MiniMaxM3VisionProcessor {
         frames: &[DynamicImage],
         config: &PreProcessorConfig,
     ) -> Result<PreprocessedEncoderInputs, TransformError> {
-        self.for_request(config)?
+        let result = self
+            .for_request(config)?
             .inner
-            .preprocess_video(frames, config)
+            .preprocess_video(frames, config)?;
+        Ok(with_video_sample_metadata(result, config))
     }
 
     fn preprocess_video_rgb(
@@ -255,9 +291,11 @@ impl VisionPreProcessor for MiniMaxM3VisionProcessor {
         frames: &[RgbFrameRef<'_>],
         config: &PreProcessorConfig,
     ) -> Result<PreprocessedEncoderInputs, TransformError> {
-        self.for_request(config)?
+        let result = self
+            .for_request(config)?
             .inner
-            .preprocess_video_rgb(frames, config)
+            .preprocess_video_rgb(frames, config)?;
+        Ok(with_video_sample_metadata(result, config))
     }
 
     fn calculate_num_tokens(&self, width: u32, height: u32, config: &PreProcessorConfig) -> usize {
@@ -438,6 +476,45 @@ mod tests {
             .preprocess_video(&frames, &config)
             .expect("M3 supports video preprocessing");
         assert!(!out.feature_token_counts.is_empty());
+        // No connector metadata injected -> no timestamp keys.
+        assert!(!out.model_specific.contains_key("video_frames_indices"));
+        assert!(!out.model_specific.contains_key("video_source_fps"));
+    }
+
+    #[test]
+    fn video_sample_metadata_is_passed_through() {
+        use crate::vision::processor::VisionPreProcessor;
+
+        let processor = MiniMaxM3VisionProcessor::new();
+        let mut config = m3_config();
+        config
+            .extra
+            .insert("frames_indices".to_string(), serde_json::json!([0, 30, 60]));
+        config
+            .extra
+            .insert("source_fps".to_string(), serde_json::json!(30.0));
+        let frames = vec![
+            DynamicImage::new_rgb8(224, 224),
+            DynamicImage::new_rgb8(224, 224),
+        ];
+
+        let out = processor
+            .preprocess_video(&frames, &config)
+            .expect("M3 supports video preprocessing");
+        match out.model_specific.get("video_frames_indices") {
+            Some(ModelSpecificValue::IntTensor { data, shape }) => {
+                assert_eq!(data, &[0, 30, 60]);
+                assert_eq!(shape, &[3]);
+            }
+            other => panic!("expected video_frames_indices IntTensor, got {other:?}"),
+        }
+        match out.model_specific.get("video_source_fps") {
+            Some(ModelSpecificValue::Tensor { data, shape }) => {
+                assert_eq!(data, &[30.0]);
+                assert_eq!(shape, &[1]);
+            }
+            other => panic!("expected video_source_fps Tensor, got {other:?}"),
+        }
     }
 
     #[test]
