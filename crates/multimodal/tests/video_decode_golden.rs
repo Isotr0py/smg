@@ -144,6 +144,7 @@ async fn decode_samples_match_strategy_plans_on_real_video() {
                 max_frames: 2048,
                 sample_fps: 2.0,
                 strategy: VideoSamplingStrategy::Glm5Next { max_duration: 0.0 },
+                max_long_side_pixel: None,
             },
         )
         .await

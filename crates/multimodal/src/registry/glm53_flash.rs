@@ -272,6 +272,7 @@ impl ModelProcessorSpec for Glm53FlashSpec {
                     .and_then(|config| config.get_extra::<f64>("max_duration"))
                     .unwrap_or(0.0),
             },
+            max_long_side_pixel: None,
         }
     }
 

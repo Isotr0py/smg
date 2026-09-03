@@ -85,6 +85,7 @@ pub(super) fn qwen3_video_fetch_config(
             .and_then(|config| config.get_extra::<f32>("fps"))
             .unwrap_or(defaults.sample_fps),
         strategy: VideoSamplingStrategy::Qwen3Vl,
+        max_long_side_pixel: None,
     }
 }
 
